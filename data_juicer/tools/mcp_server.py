@@ -14,14 +14,16 @@ def main():
 Available modes:
   granular-ops    Launch MCP server with individual operator tools
   recipe-flow     Launch MCP server with recipe-based workflow tools
+  plan-flow       Launch persistent, approval-gated plan workflow tools
 
 Examples:
   dj-mcp granular-ops --transport stdio
   dj-mcp recipe-flow --transport streamable-http --port 8000
+  dj-mcp plan-flow --transport stdio
         """,
     )
 
-    parser.add_argument("mode", choices=["granular-ops", "recipe-flow"], help="MCP server mode to launch")
+    parser.add_argument("mode", choices=["granular-ops", "recipe-flow", "plan-flow"], help="MCP server mode to launch")
 
     parser.add_argument(
         "--transport",
@@ -44,17 +46,22 @@ Examples:
         elif args.mode == "recipe-flow":
             from data_juicer.tools.DJ_mcp_recipe_flow import create_mcp_server
 
-        print(f"Starting Data-Juicer MCP Server ({args.mode} mode)")
-        print(f"Transport: {args.transport}, Port: {args.port}")
+        elif args.mode == "plan-flow":
+            from data_juicer.tools.DJ_mcp_plan_flow import create_mcp_server
+
+        # stdout is the JSON-RPC channel for stdio MCP; diagnostics must never
+        # be written there or clients may fail during the handshake.
+        print(f"Starting Data-Juicer MCP Server ({args.mode} mode)", file=sys.stderr)
+        print(f"Transport: {args.transport}, Port: {args.port}", file=sys.stderr)
 
         mcp = create_mcp_server(port=str(args.port))
         mcp.run(transport=args.transport)
 
     except ImportError as e:
-        print(f"Error: Missing dependencies for MCP server. {e}")
+        print(f"Error: Missing dependencies for MCP server. {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
-        print(f"Error starting MCP server: {e}")
+        print(f"Error starting MCP server: {e}", file=sys.stderr)
         sys.exit(1)
 
 

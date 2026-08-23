@@ -1,9 +1,15 @@
 """Hatchling build hook for compiling C++ extensions."""
 
+import os
 import subprocess
 import sys
 
 from hatchling.builders.hooks.plugin.interface import BuildHookInterface
+
+
+def skip_extensions_requested() -> bool:
+    """Whether optional C++/Cython extensions should be omitted."""
+    return os.getenv("DJ_SKIP_BUILD_EXTENSIONS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 class CustomBuildHook(BuildHookInterface):
@@ -12,6 +18,10 @@ class CustomBuildHook(BuildHookInterface):
     def initialize(self, version, build_data):
         """Compile C++ extensions before building the wheel."""
         if self.target_name not in ("wheel", "sdist"):
+            return
+
+        if skip_extensions_requested():
+            print("Skipping optional Data-Juicer C++ extensions (DJ_SKIP_BUILD_EXTENSIONS is set).")
             return
 
         # Only compile for wheel builds; skip on macOS (C++/OpenMP toolchain issues)

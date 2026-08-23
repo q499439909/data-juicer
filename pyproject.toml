@@ -166,7 +166,7 @@ ai_services = [
 tools = [
     "matplotlib",  # For drawing analysis results
     "wordcloud==1.9.4",  # For drawing word clouds
-    "mcp[cli]>=1.7.0",  # For mcp service
+    "mcp[cli]>=1.7.0,<2.0.0",  # MCP 2.x has an incompatible server API
     "rank-bm25>=0.2.2",  # For OP search
     "fastapi>=0.110",  # For using data-juicer in a service way
 ]
