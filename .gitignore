@@ -45,6 +45,10 @@ demos/local/*
 # env file
 .env
 
+# Plan-flow runtime state and user workspace data
+/.dj/
+/data/
+
 demos/local/*
 
 # cython outputs
