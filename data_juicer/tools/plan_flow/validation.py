@@ -193,7 +193,6 @@ def normalize_and_validate(
             if schema is None:
                 errors.append({"code": "OP_NOT_FOUND", "path": location, "message": f"Unknown operator: {name}"})
                 continue
-            uses_api = uses_api or "api" in schema.get("tags", [])
             if params is None:
                 params = {}
                 step[name] = params
@@ -206,6 +205,23 @@ def normalize_and_validate(
                     }
                 )
                 continue
+            tags = set(schema.get("tags", []))
+            has_api_mode_switch = "is_api_model" in schema["parameters"]
+            api_selected = "api" in tags and (not has_api_mode_switch or params.get("is_api_model") is True)
+            uses_api = uses_api or api_selected
+            is_api_vlm = api_selected and "multimodal" in tags and "api_or_hf_model" in schema["parameters"]
+            if is_api_vlm and not str(params.get("api_or_hf_model") or "").strip():
+                runtime_vlm_model = runtime_capabilities()["default_models"]["vlm"]["model"]
+                if runtime_vlm_model:
+                    params["api_or_hf_model"] = runtime_vlm_model
+                else:
+                    errors.append(
+                        {
+                            "code": "RUNTIME_VLM_MODEL_MISSING",
+                            "path": f"{location}.{name}.api_or_hf_model",
+                            "message": "API VLM operator requires an explicit model or DJ_VLM_MODEL in the MCP environment",
+                        }
+                    )
             allowed = set(schema["parameters"]) | _COMMON_OPERATOR_PARAMS
             for unknown in sorted(set(params) - allowed):
                 errors.append(

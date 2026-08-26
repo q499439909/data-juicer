@@ -38,9 +38,9 @@ def inspect_input(workspace_root: WorkspaceRoot, input: dict[str, Any], sample_s
 
 
 def search_capabilities(
-    requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 8
+    requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 5
 ) -> dict[str, Any]:
-    """Search Data-Juicer operators for each requirement and explicitly identify capability gaps."""
+    """Search Data-Juicer operators; each requirement returns at most five candidates with full schemas."""
     return _call(service.search_capabilities, requirements, modality, executor_type, top_k)
 
 

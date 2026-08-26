@@ -7,6 +7,7 @@ import pytest
 from data_juicer.tools.plan_flow.common import PlanFlowError
 from data_juicer.tools.plan_flow.discovery import inspect_input, search_capabilities
 from data_juicer.tools.plan_flow.service import PlanFlowService
+from data_juicer.tools.plan_flow.validation import normalize_and_validate
 
 
 def _plan(dataset: Path, min_len: int = 2):
@@ -41,12 +42,64 @@ def test_runtime_capabilities_report_presence_without_secret(monkeypatch):
     secret = "must-not-be-returned"
     monkeypatch.setenv("OPENAI_API_KEY", secret)
     monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("DJ_VLM_MODEL", "qwen3.7-plus")
 
     result = search_capabilities(["filter text"], modality="text", top_k=1)
 
     assert result["runtime"]["api_credentials_configured"] is True
     assert result["runtime"]["api_base_url_configured"] is True
+    assert result["runtime"]["default_models"]["vlm"] == {
+        "configured": True,
+        "model": "qwen3.7-plus",
+        "role": "vision-language",
+        "source": "server_environment",
+    }
     assert secret not in json.dumps(result)
+
+
+def test_runtime_vlm_model_is_materialized_for_api_vlm_operator(tmp_path, monkeypatch):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"<__dj__image>","images":["image.jpg"]}\n', encoding="utf-8")
+    monkeypatch.setenv("DJ_VLM_MODEL", "qwen3.7-plus")
+    plan = {
+        "user_intent": "Tag images",
+        "modality": "image",
+        "recipe": {
+            "dataset_path": str(dataset),
+            "export_path": "result.jsonl",
+            "process": [{"image_tagging_vlm_mapper": {"is_api_model": True}}],
+        },
+    }
+
+    normalized, validation, _ = normalize_and_validate(str(tmp_path), plan)
+
+    assert validation["ok"] is True
+    params = normalized["recipe"]["process"][0]["image_tagging_vlm_mapper"]
+    assert params["api_or_hf_model"] == "qwen3.7-plus"
+
+
+def test_exact_operator_name_bypasses_modality_filter():
+    result = search_capabilities(["image_tagging_vlm_mapper"], modality="image", top_k=1)
+
+    operators = result["results"][0]["operators"]
+    assert operators[0]["name"] == "image_tagging_vlm_mapper"
+    assert operators[0]["modality_compatible"] is True
+
+
+def test_image_search_includes_multimodal_operators():
+    result = search_capabilities(["tag images with a vision language model"], modality="image", top_k=30)
+
+    names = [operator["name"] for operator in result["results"][0]["operators"]]
+    assert result["top_k"] == 5
+    assert len(names) <= 5
+    assert "image_tagging_vlm_mapper" in names
+
+
+def test_search_capabilities_defaults_to_five_candidates():
+    result = search_capabilities(["image"], modality="image")
+
+    assert result["top_k"] == 5
+    assert len(result["results"][0]["operators"]) == 5
 
 
 def test_prepare_versions_are_immutable_and_diffed(tmp_path):

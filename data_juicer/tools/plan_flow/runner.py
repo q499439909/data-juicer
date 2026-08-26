@@ -74,6 +74,8 @@ class PlanRunner:
             stderr = (run_path / "logs" / "stderr.log").open("ab")
             command = [
                 sys.executable,
+                "-X",
+                "utf8",
                 "-m",
                 "data_juicer.tools.plan_flow.runner",
                 "--worker",
@@ -219,7 +221,7 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
                 raise PlanFlowError("PATH_NOT_ALLOWED", f"Postprocess artifact escaped plan bundle: {script}")
             arguments = _replace(step.get("arguments", {}), variables)
             log_path = run_path / "logs" / f"postprocess-{index + 1}.log"
-            command = [sys.executable, str(script), *_postprocess_arguments(arguments)]
+            command = [sys.executable, "-X", "utf8", str(script), *_postprocess_arguments(arguments)]
             with log_path.open("wb") as log:
                 completed = subprocess.run(
                     command, cwd=state["output_dir"], stdout=log, stderr=subprocess.STDOUT, check=False

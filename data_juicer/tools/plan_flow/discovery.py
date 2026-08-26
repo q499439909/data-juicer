@@ -21,6 +21,9 @@ from .common import (
 
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff"}
 _VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v"}
+_SEARCH_MODALITIES = {"text", "image", "audio", "video", "multimodal"}
+_MEDIA_MODALITIES = {"image", "audio", "video"}
+_MAX_SEARCH_TOP_K = 5
 
 
 @lru_cache(maxsize=1)
@@ -62,8 +65,9 @@ def operator_schema(name: str) -> dict[str, Any] | None:
     }
 
 
-def runtime_capabilities() -> dict[str, bool]:
-    """Report only whether runtime settings exist; never return their values."""
+def runtime_capabilities() -> dict[str, Any]:
+    """Report safe runtime configuration while keeping credentials secret."""
+    vlm_model = str(os.environ.get("DJ_VLM_MODEL") or "").strip()
     return {
         "api_credentials_configured": bool(
             os.environ.get("OPENAI_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("SK")
@@ -73,35 +77,71 @@ def runtime_capabilities() -> dict[str, bool]:
             or os.environ.get("OPENAI_API_URL")
             or os.environ.get("DASHSCOPE_BASE_URL")
         ),
-        "vlm_model_configured": bool(os.environ.get("DJ_VLM_MODEL")),
+        "vlm_model_configured": bool(vlm_model),
+        "default_models": {
+            "vlm": {
+                "configured": bool(vlm_model),
+                "model": vlm_model or None,
+                "role": "vision-language",
+                "source": "server_environment",
+            }
+        },
     }
+
+
+def _search_tags(modality: str | None) -> list[str] | None:
+    if modality not in _SEARCH_MODALITIES:
+        return None
+    if modality in _MEDIA_MODALITIES:
+        return [modality, "multimodal"]
+    return [modality]
+
+
+def _decorate_candidate(schema: dict[str, Any], modality: str | None, executor_type: str) -> dict[str, Any]:
+    candidate = dict(schema)
+    tags = set(candidate.get("tags", []))
+    candidate["modality_compatible"] = modality not in _SEARCH_MODALITIES or modality in tags or (
+        modality in _MEDIA_MODALITIES and "multimodal" in tags
+    )
+    candidate["executor_compatible"] = not (
+        executor_type.startswith("ray")
+        and candidate["name"].startswith("document_")
+        and "deduplicator" in candidate["name"]
+    )
+    return candidate
 
 
 def search_capabilities(
     requirements: list[str],
     modality: str | None = None,
     executor_type: str = "default",
-    top_k: int = 8,
+    top_k: int = 5,
 ) -> dict[str, Any]:
-    """Return DJ candidates with schemas; explicitly mark empty searches as gaps."""
+    """Return at most five DJ candidates with full schemas for each requirement."""
     searcher = _searcher()
     rows = []
-    tags = [modality] if modality in {"text", "image", "audio", "video", "multimodal"} else None
+    tags = _search_tags(modality)
+    limit = max(1, min(int(top_k), _MAX_SEARCH_TOP_K))
     for requirement in requirements:
         query = str(requirement or "").strip()
         if not query:
             continue
-        matches = searcher.search_by_bm25(query=query, top_k=max(1, min(int(top_k), 30)), tags=tags, match_all=False)
+        matches = searcher.search_by_bm25(query=query, top_k=limit, tags=tags, match_all=False)
         candidates = []
+        seen = set()
+        exact_schema = operator_schema(query)
+        if exact_schema is not None:
+            candidates.append(_decorate_candidate(exact_schema, modality, executor_type))
+            seen.add(query)
         for match in matches:
+            if match["name"] in seen:
+                continue
             schema = operator_schema(match["name"])
             if schema:
-                schema["executor_compatible"] = not (
-                    executor_type.startswith("ray")
-                    and schema["name"].startswith("document_")
-                    and "deduplicator" in schema["name"]
-                )
-                candidates.append(schema)
+                candidates.append(_decorate_candidate(schema, modality, executor_type))
+                seen.add(match["name"])
+            if len(candidates) >= limit:
+                break
         rows.append(
             {
                 "requirement": query,
@@ -110,7 +150,13 @@ def search_capabilities(
                 "fallbacks": [] if candidates else ["postprocess_script", "custom_operator"],
             }
         )
-    return {"ok": True, "executor_type": executor_type, "runtime": runtime_capabilities(), "results": rows}
+    return {
+        "ok": True,
+        "executor_type": executor_type,
+        "top_k": limit,
+        "runtime": runtime_capabilities(),
+        "results": rows,
+    }
 
 
 def inspect_input(workspace_root: str, input: dict[str, Any], sample_size: int = 20) -> dict[str, Any]:

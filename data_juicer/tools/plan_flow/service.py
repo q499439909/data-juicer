@@ -19,7 +19,7 @@ class PlanFlowService:
         return inspect_local_input(workspace_root, input, sample_size)
 
     def search_capabilities(
-        self, requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 8
+        self, requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 5
     ) -> dict[str, Any]:
         return discover_capabilities(requirements, modality, executor_type, top_k)
 
