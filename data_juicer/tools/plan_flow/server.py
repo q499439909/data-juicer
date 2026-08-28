@@ -38,10 +38,15 @@ def inspect_input(workspace_root: WorkspaceRoot, input: dict[str, Any], sample_s
 
 
 def search_capabilities(
-    requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 5
+    requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 3
 ) -> dict[str, Any]:
-    """Search Data-Juicer operators; each requirement returns at most five candidates with full schemas."""
+    """BM25-search all atomic requirements; return compact, cross-requirement-deduplicated operator definitions."""
     return _call(service.search_capabilities, requirements, modality, executor_type, top_k)
+
+
+def get_capability_schemas(operator_names: list[str]) -> dict[str, Any]:
+    """Load full schemas by exact name for operators already found by search_capabilities; this is not a new search."""
+    return _call(service.get_capability_schemas, operator_names)
 
 
 def prepare_plan(
@@ -108,6 +113,7 @@ def create_mcp_server(port: str = "8000"):
     for tool in (
         inspect_input,
         search_capabilities,
+        get_capability_schemas,
         prepare_plan,
         get_plan,
         preview_plan,

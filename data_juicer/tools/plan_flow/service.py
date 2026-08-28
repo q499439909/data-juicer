@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .discovery import capability_schemas as load_capability_schemas
 from .discovery import inspect_input as inspect_local_input
 from .discovery import runtime_capabilities
 from .discovery import search_capabilities as discover_capabilities
@@ -19,9 +20,12 @@ class PlanFlowService:
         return inspect_local_input(workspace_root, input, sample_size)
 
     def search_capabilities(
-        self, requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 5
+        self, requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 3
     ) -> dict[str, Any]:
         return discover_capabilities(requirements, modality, executor_type, top_k)
+
+    def get_capability_schemas(self, operator_names: list[str]) -> dict[str, Any]:
+        return load_capability_schemas(operator_names)
 
     def prepare_plan(
         self,

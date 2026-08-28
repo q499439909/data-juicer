@@ -65,6 +65,24 @@ def operator_schema(name: str) -> dict[str, Any] | None:
     }
 
 
+def capability_schemas(operator_names: list[str]) -> dict[str, Any]:
+    """Return full schemas for already-discovered operators by exact name."""
+    operators = []
+    missing = []
+    seen = set()
+    for value in operator_names:
+        name = str(value or "").strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        schema = operator_schema(name)
+        if schema is None:
+            missing.append(name)
+        else:
+            operators.append(schema)
+    return {"ok": not missing, "operators": operators, "missing": missing}
+
+
 def runtime_capabilities() -> dict[str, Any]:
     """Report safe runtime configuration while keeping credentials secret."""
     vlm_model = str(os.environ.get("DJ_VLM_MODEL") or "").strip()
@@ -97,57 +115,83 @@ def _search_tags(modality: str | None) -> list[str] | None:
     return [modality]
 
 
-def _decorate_candidate(schema: dict[str, Any], modality: str | None, executor_type: str) -> dict[str, Any]:
-    candidate = dict(schema)
-    tags = set(candidate.get("tags", []))
-    candidate["modality_compatible"] = modality not in _SEARCH_MODALITIES or modality in tags or (
-        modality in _MEDIA_MODALITIES and "multimodal" in tags
-    )
-    candidate["executor_compatible"] = not (
-        executor_type.startswith("ray")
-        and candidate["name"].startswith("document_")
-        and "deduplicator" in candidate["name"]
-    )
-    return candidate
+def _compact_candidate(record, modality: str | None, executor_type: str) -> dict[str, Any]:
+    """Build the compact definition returned during capability discovery."""
+    tags = set(record.tags)
+    return {
+        "name": record.name,
+        "type": record.type,
+        "description": record.desc.strip(),
+        "tags": list(record.tags),
+        "signature": str(record.sig),
+        "parameter_descriptions": record.param_desc.strip(),
+        "modality_compatible": modality not in _SEARCH_MODALITIES or modality in tags or (
+            modality in _MEDIA_MODALITIES and "multimodal" in tags
+        ),
+        "executor_compatible": not (
+            executor_type.startswith("ray")
+            and record.name.startswith("document_")
+            and "deduplicator" in record.name
+        ),
+    }
 
 
 def search_capabilities(
     requirements: list[str],
     modality: str | None = None,
     executor_type: str = "default",
-    top_k: int = 5,
+    top_k: int = 3,
 ) -> dict[str, Any]:
-    """Return at most five DJ candidates with full schemas for each requirement."""
+    """Search all requirements with BM25 and return deduplicated compact definitions."""
     searcher = _searcher()
     rows = []
+    unique_operators = {}
     tags = _search_tags(modality)
     limit = max(1, min(int(top_k), _MAX_SEARCH_TOP_K))
     for requirement in requirements:
         query = str(requirement or "").strip()
         if not query:
             continue
-        matches = searcher.search_by_bm25(query=query, top_k=limit, tags=tags, match_all=False)
-        candidates = []
+        candidate_names = []
         seen = set()
-        exact_schema = operator_schema(query)
-        if exact_schema is not None:
-            candidates.append(_decorate_candidate(exact_schema, modality, executor_type))
+        exact_record = operator_record(query)
+        if exact_record is not None:
+            candidate_names.append(query)
             seen.add(query)
+            if query in unique_operators:
+                unique_operators[query]["matched_requirements"].append(query)
+            else:
+                compact = _compact_candidate(exact_record, modality, executor_type)
+                compact["matched_requirements"] = [query]
+                unique_operators[query] = compact
+        matches = searcher.search_by_bm25(
+            query=query,
+            fields=["name", "desc", "param_desc", "sig"],
+            top_k=limit,
+            tags=tags,
+            match_all=False,
+        )
         for match in matches:
             if match["name"] in seen:
                 continue
-            schema = operator_schema(match["name"])
-            if schema:
-                candidates.append(_decorate_candidate(schema, modality, executor_type))
-                seen.add(match["name"])
-            if len(candidates) >= limit:
+            record = operator_record(match["name"])
+            if record is not None:
+                candidate_names.append(record.name)
+                seen.add(record.name)
+                if record.name in unique_operators:
+                    unique_operators[record.name]["matched_requirements"].append(query)
+                else:
+                    compact = _compact_candidate(record, modality, executor_type)
+                    compact["matched_requirements"] = [query]
+                    unique_operators[record.name] = compact
+            if len(candidate_names) >= limit:
                 break
         rows.append(
             {
                 "requirement": query,
-                "coverage": "candidates" if candidates else "gap",
-                "operators": candidates,
-                "fallbacks": [] if candidates else ["postprocess_script", "custom_operator"],
+                "coverage": "candidates" if candidate_names else "gap",
+                "operator_names": candidate_names,
+                "fallbacks": [] if candidate_names else ["postprocess_script", "custom_operator"],
             }
         )
     return {
@@ -156,6 +200,7 @@ def search_capabilities(
         "top_k": limit,
         "runtime": runtime_capabilities(),
         "results": rows,
+        "operators": list(unique_operators.values()),
     }
 
 

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from data_juicer.tools.plan_flow.common import PlanFlowError
-from data_juicer.tools.plan_flow.discovery import inspect_input, search_capabilities
+from data_juicer.tools.plan_flow.discovery import capability_schemas, inspect_input, search_capabilities
 from data_juicer.tools.plan_flow.service import PlanFlowService
 from data_juicer.tools.plan_flow.validation import normalize_and_validate
 
@@ -81,25 +81,69 @@ def test_runtime_vlm_model_is_materialized_for_api_vlm_operator(tmp_path, monkey
 def test_exact_operator_name_bypasses_modality_filter():
     result = search_capabilities(["image_tagging_vlm_mapper"], modality="image", top_k=1)
 
-    operators = result["results"][0]["operators"]
-    assert operators[0]["name"] == "image_tagging_vlm_mapper"
-    assert operators[0]["modality_compatible"] is True
+    assert result["results"][0]["operator_names"] == ["image_tagging_vlm_mapper"]
+    assert result["operators"][0]["name"] == "image_tagging_vlm_mapper"
+    assert result["operators"][0]["modality_compatible"] is True
+    assert "parameters" not in result["operators"][0]
+    assert "signature" in result["operators"][0]
 
 
 def test_image_search_includes_multimodal_operators():
     result = search_capabilities(["tag images with a vision language model"], modality="image", top_k=30)
 
-    names = [operator["name"] for operator in result["results"][0]["operators"]]
+    names = result["results"][0]["operator_names"]
     assert result["top_k"] == 5
     assert len(names) <= 5
     assert "image_tagging_vlm_mapper" in names
 
 
-def test_search_capabilities_defaults_to_five_candidates():
+def test_search_capabilities_defaults_to_three_compact_candidates():
     result = search_capabilities(["image"], modality="image")
 
-    assert result["top_k"] == 5
-    assert len(result["results"][0]["operators"]) == 5
+    assert result["top_k"] == 3
+    assert len(result["results"][0]["operator_names"]) == 3
+
+
+def test_search_deduplicates_compact_definitions_across_requirements():
+    result = search_capabilities(["filter text", "filter text"], modality="text", top_k=3)
+
+    first = result["results"][0]["operator_names"]
+    second = result["results"][1]["operator_names"]
+    assert first == second
+    assert len(result["operators"]) == len(set(first))
+    assert all(operator["matched_requirements"] == ["filter text", "filter text"] for operator in result["operators"])
+
+
+def test_search_uses_bm25_over_registered_definition_fields(monkeypatch):
+    from data_juicer.tools.plan_flow import discovery
+
+    searcher = discovery._searcher()
+    original = searcher.search_by_bm25
+    calls = []
+
+    def capture(*args, **kwargs):
+        calls.append(kwargs)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(searcher, "search_by_bm25", capture)
+    monkeypatch.setattr(
+        searcher,
+        "search_by_regex",
+        lambda *args, **kwargs: pytest.fail("plan-flow discovery must not use regex"),
+    )
+
+    search_capabilities(["filter text"], modality="text", top_k=1)
+
+    assert calls[0]["fields"] == ["name", "desc", "param_desc", "sig"]
+
+
+def test_full_capability_schemas_are_loaded_by_exact_name():
+    result = capability_schemas(["text_length_filter", "text_length_filter", "missing_operator"])
+
+    assert [operator["name"] for operator in result["operators"]] == ["text_length_filter"]
+    assert "parameters" in result["operators"][0]
+    assert result["missing"] == ["missing_operator"]
+    assert result["ok"] is False
 
 
 def test_prepare_versions_are_immutable_and_diffed(tmp_path):
@@ -162,6 +206,7 @@ def test_mcp_exposes_small_plan_first_surface():
     assert {tool.name for tool in tools} == {
         "inspect_input",
         "search_capabilities",
+        "get_capability_schemas",
         "prepare_plan",
         "get_plan",
         "preview_plan",
