@@ -116,7 +116,7 @@ class Visualize:
     def setup():
         st.set_page_config(
             page_title='Data-Juicer',
-            page_icon=':smile',
+            page_icon=None,
             layout='wide',
             # initial_sidebar_state="expanded",
         )
@@ -164,7 +164,7 @@ class Visualize:
             if len(original_imgs) > 0:
                 st.header('Histograms')
                 for img in original_imgs:
-                    st.image(img, output_format='png', use_column_width=True)
+                    st.image(img, output_format='png', use_container_width=True)
 
     @staticmethod
     def visualize():

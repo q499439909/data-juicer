@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -212,8 +212,12 @@ class RunResult:
     exit_code: int | None = None
     error_code: str | None = None
     error: str | None = None
+    provenance: dict[str, Any] = dataclass_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.status not in _TERMINAL_STATUSES:
             raise PlanFlowError("INVALID_RUN_RESULT", f"RunResult must be terminal: {self.status}")
         object.__setattr__(self, "collected_at", _utc(self.collected_at, "collected_at"))
+        if not isinstance(self.provenance, dict):
+            raise PlanFlowError("INVALID_RUN_RESULT", "RunResult provenance must be an object")
+        object.__setattr__(self, "provenance", dict(self.provenance))

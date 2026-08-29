@@ -126,7 +126,7 @@ class Visualize:
 
         st.set_page_config(
             page_title='Data-Juicer',
-            page_icon=':smile',
+            page_icon=None,
             layout='wide',
             # initial_sidebar_state="expanded",
         )

@@ -10,7 +10,7 @@ class Visualize:
     def setup():
         st.set_page_config(
             page_title='Data-Juicer',
-            page_icon=':smile',
+            page_icon=None,
             layout='wide',
             # initial_sidebar_state="expanded",
         )
@@ -37,7 +37,7 @@ def main():
     def make_image(line):
         pattern = r'!\[(.*?)\]\((.*?)\)'
         matches = re.findall(pattern, line)
-        st.image(matches[0][1], output_format='png', use_column_width=True)
+        st.image(matches[0][1], output_format='png', use_container_width=True)
 
     Visualize.visualize()
     buffer = []

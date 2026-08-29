@@ -155,7 +155,7 @@ def run_demo():
         if len(images_ori) > 0:
             st.subheader('Histograms')
             for img in images_ori:
-                st.image(img, output_format='png', use_column_width=True)
+                st.image(img, output_format='png', use_container_width=True)
 
 
 class Visualize:
@@ -164,7 +164,7 @@ class Visualize:
     def setup():
         st.set_page_config(
             page_title='Data-Juicer',
-            page_icon=':smile',
+            page_icon=None,
             # layout='wide',
             # initial_sidebar_state="expanded",
         )
@@ -189,7 +189,7 @@ class Visualize:
 
         st.image(os.path.join(project_path, 'docs/imgs/data-juicer.jpg'),
                  output_format='jpg',
-                 use_column_width=True)
+                 use_container_width=True)
         st.markdown(project_desc)
         with st.expander('Features', expanded=False):
             st.markdown(features_desc)

@@ -149,6 +149,8 @@ class PlanRunner:
                     state["error_code"] = result.error_code
                 if result.error:
                     state["error"] = result.error
+                if result.provenance:
+                    state["runtime_provenance"] = result.provenance
                 write_json_atomic(run_path / "run.json", state)
         state["stdout_log"] = str(run_path / "logs" / "stdout.log")
         state["stderr_log"] = str(run_path / "logs" / "stderr.log")

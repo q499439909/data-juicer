@@ -7,7 +7,7 @@ class Visualize:
     def setup():
         st.set_page_config(
             page_title='Data-Juicer',
-            page_icon=':smile',
+            page_icon=None,
             #layout='wide',
             # initial_sidebar_state="expanded",
         )
@@ -36,7 +36,7 @@ def main():
 
         st.image('imgs/data-juicer.png',
                  output_format='png',
-                 use_column_width=True)
+                 use_container_width=True)
         demo = 'The demo is coming soon😊'
         st.markdown(
             f'<div align = "center"> <font size = "50"> {demo} \
