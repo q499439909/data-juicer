@@ -2132,4 +2132,8 @@ def free_models(clear_model_zoo=True):
             pass
     if clear_model_zoo:
         MODEL_ZOO.clear()
-    torch.cuda.empty_cache()
+    # Cleanup must not turn an optional dependency into a runtime requirement.
+    # In particular, a model-free CPU run should never trigger LazyLoader's
+    # package installer merely to call an empty CUDA cache operation.
+    if not isinstance(torch, LazyLoader) or torch._module is not None:
+        torch.cuda.empty_cache()

@@ -9,8 +9,9 @@ from typing import Any
 
 from data_juicer.config.config import build_base_parser
 
+from ._runtime import bind_api_operator
 from .common import is_within, require_workspace, resolve_workspace_path
-from .discovery import operator_schema, runtime_capabilities
+from .discovery import operator_schema
 
 _COMMON_OPERATOR_PARAMS = {
     "text_key",
@@ -176,7 +177,6 @@ def normalize_and_validate(
             {"code": "PROCESS_REQUIRED", "path": "recipe.process", "message": "recipe.process must be a non-empty list"}
         )
     else:
-        uses_api = False
         for index, step in enumerate(process):
             location = f"recipe.process[{index}]"
             if not isinstance(step, dict) or len(step) != 1:
@@ -208,20 +208,19 @@ def normalize_and_validate(
             tags = set(schema.get("tags", []))
             has_api_mode_switch = "is_api_model" in schema["parameters"]
             api_selected = "api" in tags and (not has_api_mode_switch or params.get("is_api_model") is True)
-            uses_api = uses_api or api_selected
             is_api_vlm = api_selected and "multimodal" in tags and "api_or_hf_model" in schema["parameters"]
-            if is_api_vlm and not str(params.get("api_or_hf_model") or "").strip():
-                runtime_vlm_model = runtime_capabilities()["default_models"]["vlm"]["model"]
-                if runtime_vlm_model:
-                    params["api_or_hf_model"] = runtime_vlm_model
-                else:
-                    errors.append(
-                        {
-                            "code": "RUNTIME_VLM_MODEL_MISSING",
-                            "path": f"{location}.{name}.api_or_hf_model",
-                            "message": "API VLM operator requires an explicit model or DJ_VLM_MODEL in the MCP environment",
-                        }
-                    )
+            if api_selected:
+                operator_path = f"{location}.{name}"
+                resolved_model, binding_errors, binding_warnings = bind_api_operator(
+                    operator=name,
+                    path=operator_path,
+                    is_vlm=is_api_vlm,
+                    explicit_model=params.get("api_or_hf_model"),
+                )
+                errors.extend(binding_errors)
+                warnings.extend(binding_warnings)
+                if is_api_vlm and resolved_model:
+                    params["api_or_hf_model"] = resolved_model
             allowed = set(schema["parameters"]) | _COMMON_OPERATOR_PARAMS
             for unknown in sorted(set(params) - allowed):
                 errors.append(
@@ -240,16 +239,6 @@ def normalize_and_validate(
                             "message": f"Required parameter is missing: {param_name}",
                         }
                     )
-
-        if uses_api and not runtime_capabilities()["api_credentials_configured"]:
-            warnings.append(
-                {
-                    "code": "RUNTIME_API_CREDENTIAL_MISSING",
-                    "path": "recipe.process",
-                    "message": "An API operator is selected but the MCP runtime has no API credential environment variable",
-                }
-            )
-
     executor = recipe.get("executor_type", "default")
     if executor not in {"default", "ray", "ray_partitioned"}:
         errors.append(

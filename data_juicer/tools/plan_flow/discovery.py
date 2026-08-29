@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import inspect
 import json
-import os
 import uuid
 from functools import lru_cache
 from typing import Any
@@ -23,6 +22,8 @@ _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".t
 _VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v"}
 _SEARCH_MODALITIES = {"text", "image", "audio", "video", "multimodal"}
 _MEDIA_MODALITIES = {"image", "audio", "video"}
+_CATALOG_MODALITIES = ("text", "image", "audio", "video", "multimodal")
+_CATALOG_DEVICES = ("cpu", "gpu")
 _MAX_SEARCH_TOP_K = 5
 
 
@@ -48,8 +49,10 @@ def operator_schema(name: str) -> dict[str, Any] | None:
     for parameter in record.sig.parameters.values():
         if parameter.name in {"self", "args", "kwargs"}:
             continue
-        default = None if parameter.default is inspect.Parameter.empty else parameter.default
-        annotation = "Any" if parameter.annotation is inspect.Parameter.empty else str(parameter.annotation)
+        default = None if parameter.default is inspect.Parameter.empty else _json_safe_value(parameter.default)
+        annotation = (
+            "Any" if parameter.annotation is inspect.Parameter.empty else inspect.formatannotation(parameter.annotation)
+        )
         parameters[parameter.name] = {
             "type": annotation,
             "required": parameter.default is inspect.Parameter.empty,
@@ -63,6 +66,22 @@ def operator_schema(name: str) -> dict[str, Any] | None:
         "tags": list(record.tags),
         "parameters": parameters,
     }
+
+
+def _json_safe_value(value: Any) -> Any:
+    """Keep detail responses JSON serializable without leaking implementation objects."""
+    try:
+        json.dumps(value, allow_nan=False)
+    except (TypeError, ValueError, OverflowError):
+        return repr(value)
+    return value
+
+
+def _catalog_dimensions(record) -> tuple[list[str], list[str]]:
+    tags = {str(tag).strip().lower() for tag in record.tags if str(tag).strip()}
+    modalities = [name for name in _CATALOG_MODALITIES if name in tags] or ["general"]
+    devices = [name for name in _CATALOG_DEVICES if name in tags] or ["unknown"]
+    return modalities, devices
 
 
 def capability_schemas(operator_names: list[str]) -> dict[str, Any]:
@@ -83,26 +102,58 @@ def capability_schemas(operator_names: list[str]) -> dict[str, Any]:
     return {"ok": not missing, "operators": operators, "missing": missing}
 
 
-def runtime_capabilities() -> dict[str, Any]:
-    """Report safe runtime configuration while keeping credentials secret."""
-    vlm_model = str(os.environ.get("DJ_VLM_MODEL") or "").strip()
-    return {
-        "api_credentials_configured": bool(
-            os.environ.get("OPENAI_API_KEY") or os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("SK")
-        ),
-        "api_base_url_configured": bool(
-            os.environ.get("OPENAI_BASE_URL")
-            or os.environ.get("OPENAI_API_URL")
-            or os.environ.get("DASHSCOPE_BASE_URL")
-        ),
-        "vlm_model_configured": bool(vlm_model),
-        "default_models": {
-            "vlm": {
-                "configured": bool(vlm_model),
-                "model": vlm_model or None,
-                "role": "vision-language",
-                "source": "server_environment",
+def operator_catalog() -> dict[str, Any]:
+    """Return the compact, presentation-safe catalog for the live DJ registry."""
+    operators = []
+    for record in sorted(_searcher().op_records, key=lambda item: item.name):
+        modalities, devices = _catalog_dimensions(record)
+        operators.append(
+            {
+                "name": record.name,
+                "description": record.desc.strip(),
+                "category": str(record.type or "").strip() or "unknown",
+                "modalities": modalities,
+                "devices": devices,
             }
+        )
+
+    return {
+        "ok": True,
+        "total": len(operators),
+        "operators": operators,
+        "facets": {
+            "categories": sorted({item["category"] for item in operators}),
+            "modalities": [
+                name for name in (*_CATALOG_MODALITIES, "general") if any(name in item["modalities"] for item in operators)
+            ],
+            "devices": [
+                name for name in (*_CATALOG_DEVICES, "unknown") if any(name in item["devices"] for item in operators)
+            ],
+        },
+    }
+
+
+def operator_detail(name: str) -> dict[str, Any]:
+    """Return presentation-safe details for one exact operator name."""
+    record = operator_record(str(name or "").strip())
+    if record is None:
+        return {"ok": False, "error": "operator_not_found", "message": "Operator was not found."}
+
+    schema = operator_schema(record.name)
+    modalities, devices = _catalog_dimensions(record)
+    parameters = [
+        {"name": parameter_name, **parameter}
+        for parameter_name, parameter in (schema or {}).get("parameters", {}).items()
+    ]
+    return {
+        "ok": True,
+        "operator": {
+            "name": record.name,
+            "description": record.desc.strip(),
+            "category": str(record.type or "").strip() or "unknown",
+            "modalities": modalities,
+            "devices": devices,
+            "parameters": parameters,
         },
     }
 
@@ -198,7 +249,6 @@ def search_capabilities(
         "ok": True,
         "executor_type": executor_type,
         "top_k": limit,
-        "runtime": runtime_capabilities(),
         "results": rows,
         "operators": list(unique_operators.values()),
     }

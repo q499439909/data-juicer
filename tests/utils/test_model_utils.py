@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 import numpy as np
 
+from data_juicer.utils.lazy_loader import LazyLoader
 from data_juicer.utils.model_utils import (
     check_model,
     get_backup_model_link,
@@ -514,6 +515,15 @@ class ModelUtilsTest(DataJuicerTestCaseBase):
         free_models()
         # Model zoo should be cleared after freeing
         self.assertEqual(len(MODEL_ZOO), 0)
+
+    def test_free_models_does_not_load_optional_torch(self):
+        from data_juicer.utils import model_utils
+
+        unloaded_torch = LazyLoader("torch")
+        with patch.object(model_utils, "torch", unloaded_torch):
+            free_models()
+
+        self.assertIsNone(unloaded_torch._module)
 
     def test_filter_arguments_keeps_only_supported_parameters(self):
         from data_juicer.utils.model_utils import filter_arguments

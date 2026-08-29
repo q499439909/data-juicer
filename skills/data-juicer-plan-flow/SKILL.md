@@ -41,4 +41,4 @@ postprocess: []
 
 `recipe` must contain only Data-Juicer configuration. `postprocess` never goes into the DJ recipe. Scripts must already exist inside the workspace; `prepare_plan` snapshots them into the immutable plan bundle.
 
-For an API-backed VLM operator, set `is_api_model: true` and normally omit `api_or_hf_model`; `prepare_plan` materializes the server default declared in `runtime.default_models.vlm`. Never infer modality from the model name, replace the configured model without an explicit user choice, inspect environment files, or place credentials in the plan.
+For an API-backed VLM operator, set `is_api_model: true` and normally omit `api_or_hf_model`. Capability discovery never exposes runtime configuration. Only after the operator is selected does `prepare_plan` privately resolve the server default model and materialize its non-secret name in the normalized Plan. If credentials or a default model are missing, show the operator-specific validation error and configuration guidance, then stop before approval. Never inspect environment files or place credentials in the plan.

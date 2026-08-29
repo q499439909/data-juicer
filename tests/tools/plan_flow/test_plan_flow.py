@@ -5,7 +5,14 @@ from pathlib import Path
 import pytest
 
 from data_juicer.tools.plan_flow.common import PlanFlowError
-from data_juicer.tools.plan_flow.discovery import capability_schemas, inspect_input, search_capabilities
+from data_juicer.tools.plan_flow.discovery import (
+    capability_schemas,
+    inspect_input,
+    operator_catalog,
+    operator_detail,
+    search_capabilities,
+)
+from data_juicer.tools.plan_flow.execution import LocalProcessBackend, RunHandle
 from data_juicer.tools.plan_flow.service import PlanFlowService
 from data_juicer.tools.plan_flow.validation import normalize_and_validate
 
@@ -38,7 +45,58 @@ def test_relative_input_path_is_resolved_from_workspace(tmp_path):
     assert result["dataset_path"] == str(input_dir.resolve())
 
 
-def test_runtime_capabilities_report_presence_without_secret(monkeypatch):
+def test_operator_catalog_projects_the_live_registry_without_internal_paths():
+    result = operator_catalog()
+
+    assert result["ok"] is True
+    assert result["total"] == len(result["operators"])
+    assert result["total"] > 0
+    assert result["facets"]["categories"]
+    assert result["facets"]["modalities"]
+    assert result["facets"]["devices"] == ["cpu", "gpu"]
+    assert [item["name"] for item in result["operators"]] == sorted(item["name"] for item in result["operators"])
+    first = result["operators"][0]
+    assert set(first) == {"name", "description", "category", "modalities", "devices"}
+    assert first["name"]
+    assert first["category"]
+    assert first["modalities"]
+    assert first["devices"]
+
+
+def test_operator_catalog_uses_general_for_operators_without_a_modality_tag():
+    result = operator_catalog()
+
+    item = next(operator for operator in result["operators"] if operator["name"] == "general_field_filter")
+    assert item["modalities"] == ["general"]
+    assert item["devices"] == ["cpu"]
+
+
+def test_operator_detail_includes_presentation_safe_parameter_metadata():
+    result = operator_detail("text_length_filter")
+
+    assert result["ok"] is True
+    operator = result["operator"]
+    assert operator["name"] == "text_length_filter"
+    assert operator["category"] == "filter"
+    assert operator["modalities"] == ["text"]
+    assert operator["devices"] == ["cpu"]
+    parameter = next(item for item in operator["parameters"] if item["name"] == "min_len")
+    assert set(parameter) == {"name", "type", "required", "default", "description"}
+    assert parameter["required"] is False
+    json.dumps(result)
+
+
+def test_operator_detail_reports_an_unknown_exact_name():
+    result = operator_detail("not_a_registered_operator")
+
+    assert result == {
+        "ok": False,
+        "error": "operator_not_found",
+        "message": "Operator was not found.",
+    }
+
+
+def test_search_does_not_expose_runtime_configuration(monkeypatch):
     secret = "must-not-be-returned"
     monkeypatch.setenv("OPENAI_API_KEY", secret)
     monkeypatch.setenv("OPENAI_BASE_URL", "https://example.invalid/v1")
@@ -46,20 +104,17 @@ def test_runtime_capabilities_report_presence_without_secret(monkeypatch):
 
     result = search_capabilities(["filter text"], modality="text", top_k=1)
 
-    assert result["runtime"]["api_credentials_configured"] is True
-    assert result["runtime"]["api_base_url_configured"] is True
-    assert result["runtime"]["default_models"]["vlm"] == {
-        "configured": True,
-        "model": "qwen3.7-plus",
-        "role": "vision-language",
-        "source": "server_environment",
-    }
-    assert secret not in json.dumps(result)
+    serialized = json.dumps(result)
+    assert "runtime" not in result
+    assert secret not in serialized
+    assert "qwen3.7-plus" not in serialized
+    assert "example.invalid" not in serialized
 
 
 def test_runtime_vlm_model_is_materialized_for_api_vlm_operator(tmp_path, monkeypatch):
     dataset = tmp_path / "input.jsonl"
     dataset.write_text('{"text":"<__dj__image>","images":["image.jpg"]}\n', encoding="utf-8")
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-secret")
     monkeypatch.setenv("DJ_VLM_MODEL", "qwen3.7-plus")
     plan = {
         "user_intent": "Tag images",
@@ -76,6 +131,68 @@ def test_runtime_vlm_model_is_materialized_for_api_vlm_operator(tmp_path, monkey
     assert validation["ok"] is True
     params = normalized["recipe"]["process"][0]["image_tagging_vlm_mapper"]
     assert params["api_or_hf_model"] == "qwen3.7-plus"
+
+
+def test_prepare_reports_operator_specific_missing_api_credentials(tmp_path, monkeypatch):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"<__dj__image>","images":["image.jpg"]}\n', encoding="utf-8")
+    for name in ("OPENAI_API_KEY", "DASHSCOPE_API_KEY", "SK"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("DJ_VLM_MODEL", "qwen3.7-plus")
+    monkeypatch.setenv("DJ_PLAN_FLOW_CONFIG_FILE", r"D:\dsh-app\dj-plan-flow.env")
+    plan = {
+        "user_intent": "Tag images",
+        "modality": "image",
+        "recipe": {
+            "dataset_path": str(dataset),
+            "export_path": "result.jsonl",
+            "process": [{"image_tagging_vlm_mapper": {"is_api_model": True}}],
+        },
+    }
+
+    prepared = PlanFlowService().prepare_plan(str(tmp_path), plan)
+
+    assert prepared["valid"] is False
+    error = next(item for item in prepared["validation"]["errors"] if item["code"] == "RUNTIME_API_CREDENTIAL_MISSING")
+    assert error["operator"] == "image_tagging_vlm_mapper"
+    assert error["path"] == "recipe.process[0].image_tagging_vlm_mapper"
+    assert "OPENAI_API_KEY or DASHSCOPE_API_KEY" in error["message"]
+    assert r"D:\dsh-app\dj-plan-flow.env" in error["message"]
+    assert "restart" in error["message"].lower()
+
+
+def test_prepare_reports_operator_specific_missing_vlm_model(tmp_path, monkeypatch):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"<__dj__image>","images":["image.jpg"]}\n', encoding="utf-8")
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-secret")
+    monkeypatch.delenv("DJ_VLM_MODEL", raising=False)
+    monkeypatch.setenv("DJ_PLAN_FLOW_CONFIG_FILE", r"D:\dsh-app\dj-plan-flow.env")
+    plan = {
+        "user_intent": "Tag images",
+        "modality": "image",
+        "recipe": {
+            "dataset_path": str(dataset),
+            "export_path": "result.jsonl",
+            "process": [{"image_tagging_vlm_mapper": {"is_api_model": True}}],
+        },
+    }
+
+    prepared = PlanFlowService().prepare_plan(str(tmp_path), plan)
+
+    assert prepared["valid"] is False
+    error = next(item for item in prepared["validation"]["errors"] if item["code"] == "RUNTIME_VLM_MODEL_MISSING")
+    assert error["operator"] == "image_tagging_vlm_mapper"
+    assert "DJ_VLM_MODEL" in error["message"]
+    assert r"D:\dsh-app\dj-plan-flow.env" in error["message"]
+
+
+def test_prepare_response_does_not_expose_global_runtime_inventory(tmp_path):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
+
+    prepared = PlanFlowService().prepare_plan(str(tmp_path), _plan(dataset))
+
+    assert "runtime" not in prepared
 
 
 def test_exact_operator_name_bypasses_modality_filter():
@@ -224,6 +341,15 @@ def test_approved_plan_runs_and_writes_report(tmp_path):
     prepared = service.prepare_plan(str(tmp_path), _plan(dataset))
     service.approve_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"], prepared["content_hash"])
     started = service.run_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"])["run"]
+    assert set(started["handle"]) == {
+        "schema_version",
+        "backend",
+        "run_id",
+        "created_at",
+        "deadline",
+        "backend_ref",
+    }
+    assert "pid" not in started
     deadline = time.time() + 60
     while time.time() < deadline:
         state = service.get_run(str(tmp_path), prepared["task_id"], started["run_id"])["run"]
@@ -233,3 +359,9 @@ def test_approved_plan_runs_and_writes_report(tmp_path):
     assert state["status"] == "succeeded", state
     assert Path(state["report_path"]).is_file()
     assert Path(state["recipe_output"]).is_file()
+    backend = LocalProcessBackend(tmp_path)
+    handle = RunHandle.from_dict(started["handle"])
+    result = backend.collect(handle)
+    assert result.status == "succeeded"
+    assert result.exit_code == 0
+    backend.cleanup(handle)

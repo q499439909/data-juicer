@@ -1,0 +1,59 @@
+# syntax=docker/dockerfile:1.7
+
+# python:3.12-slim, resolved 2026-08-29. Keep the digest explicit so a
+# rebuild cannot silently pick up a different base image.
+FROM python@sha256:09f7da3bc104798d0afb40bc08d23ab2da20a76130cec1f2ef170848f5d85217
+
+ARG UV_VERSION=0.12.5
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONIOENCODING=utf-8 \
+    UV_PROJECT_ENVIRONMENT=/opt/dj-venv \
+    UV_LINK_MODE=copy \
+    DJ_SKIP_BUILD_EXTENSIONS=1
+
+RUN sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get -o Acquire::Retries=3 update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        ffmpeg \
+        libgl1 \
+        libglib2.0-0 \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
+
+WORKDIR /opt/data-juicer
+
+# Install locked third-party dependencies separately so source-only changes
+# can reuse this layer. The project itself is installed after its source is
+# copied, and is deliberately not editable.
+COPY pyproject.toml uv.lock README.md ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --extra tools --no-install-project
+
+COPY data_juicer ./data_juicer
+COPY tools ./tools
+COPY hatch_build.py ./
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --extra tools --no-editable \
+        --reinstall-package py-data-juicer \
+    && rm -rf /opt/dj-venv/.cache
+
+COPY docker/entrypoint.sh ./docker/entrypoint.sh
+
+RUN groupadd --gid 10001 djrun \
+    && useradd --uid 10001 --gid 10001 --home-dir /tmp/djrun --no-create-home --shell /usr/sbin/nologin djrun \
+    && install -d -o 10001 -g 10001 /workspace \
+    && chmod 0555 /opt/data-juicer/docker/entrypoint.sh
+
+ENV HOME=/tmp/djrun \
+    XDG_CACHE_HOME=/tmp/djrun/.cache \
+    HF_HOME=/tmp/djrun/huggingface
+
+USER 10001:10001
+WORKDIR /workspace
+
+ENTRYPOINT ["/opt/data-juicer/docker/entrypoint.sh"]

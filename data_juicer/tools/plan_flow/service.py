@@ -6,7 +6,8 @@ from typing import Any
 
 from .discovery import capability_schemas as load_capability_schemas
 from .discovery import inspect_input as inspect_local_input
-from .discovery import runtime_capabilities
+from .discovery import operator_catalog as load_operator_catalog
+from .discovery import operator_detail as load_operator_detail
 from .discovery import search_capabilities as discover_capabilities
 from .runner import PlanRunner
 from .store import PlanStore
@@ -18,6 +19,12 @@ class PlanFlowService:
 
     def inspect_input(self, workspace_root: str, input: dict[str, Any], sample_size: int = 20) -> dict[str, Any]:
         return inspect_local_input(workspace_root, input, sample_size)
+
+    def operator_catalog(self) -> dict[str, Any]:
+        return load_operator_catalog()
+
+    def operator_detail(self, name: str) -> dict[str, Any]:
+        return load_operator_detail(name)
 
     def search_capabilities(
         self, requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 3
@@ -54,7 +61,6 @@ class PlanFlowService:
             "workspace_root": str(store.workspace),
             **saved,
             "validation": validation,
-            "runtime": runtime_capabilities(),
             "plan": store.get_plan(task_id, saved["plan_version"])["plan"],
         }
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from pydantic import Field
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 from data_juicer.utils.lazy_loader import LazyLoader
 
@@ -47,6 +49,16 @@ def search_capabilities(
 def get_capability_schemas(operator_names: list[str]) -> dict[str, Any]:
     """Load full schemas by exact name for operators already found by search_capabilities; this is not a new search."""
     return _call(service.get_capability_schemas, operator_names)
+
+
+def operator_catalog() -> dict[str, Any]:
+    """List every operator visible in the live Data-Juicer registry."""
+    return _call(service.operator_catalog)
+
+
+def operator_detail(name: str) -> dict[str, Any]:
+    """Load parameter details for one exact operator name."""
+    return _call(service.operator_detail, name)
 
 
 def prepare_plan(
@@ -123,4 +135,23 @@ def create_mcp_server(port: str = "8000"):
         cancel_run,
     ):
         mcp.tool()(tool)
+
+    @mcp.custom_route("/operator-catalog", methods=["GET"], include_in_schema=False)
+    async def get_operator_catalog(_request: Request) -> JSONResponse:
+        payload = operator_catalog()
+        return JSONResponse(
+            payload,
+            status_code=200 if payload.get("ok") else 503,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @mcp.custom_route("/operator-detail", methods=["GET"], include_in_schema=False)
+    async def get_operator_detail(request: Request) -> JSONResponse:
+        payload = operator_detail(request.query_params.get("name", ""))
+        return JSONResponse(
+            payload,
+            status_code=200 if payload.get("ok") else 404,
+            headers={"Cache-Control": "no-store"},
+        )
+
     return mcp
