@@ -10,6 +10,7 @@ import pytest
 
 from data_juicer.tools.plan_flow.common import PlanFlowError
 from data_juicer.tools.plan_flow.execution import DockerBackend, RunHandle, RuntimeSpec
+from data_juicer.tools.plan_flow.model_store import LocalModelInstaller, LocalModelStore
 from data_juicer.tools.plan_flow.runner import PlanRunner
 from data_juicer.tools.plan_flow.store import PlanStore
 
@@ -18,24 +19,33 @@ IMAGE_ID = "sha256:" + "a" * 64
 CONTAINER_ID = "b" * 64
 
 
-def _approved_plan(workspace: Path, dataset: Path | None = None) -> tuple[str, str]:
+def _approved_plan(
+    workspace: Path,
+    dataset: Path | None = None,
+    *,
+    models: list[dict] | None = None,
+    recipe_extra: dict | None = None,
+) -> tuple[str, str]:
     dataset = dataset or workspace / "input.jsonl"
     if not dataset.exists():
         dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
     store = PlanStore(workspace)
     task_id, _ = store.create_task("Docker backend", "task_docker")
+    recipe = {
+        "dataset_path": str(dataset),
+        "export_path": "${RUN_OUTPUT}/result.jsonl",
+        "process": [],
+        "executor_type": "default",
+        "np": 1,
+    }
+    recipe.update(recipe_extra or {})
     saved = store.save_plan(
         task_id=task_id,
         plan={
             "user_intent": "Docker backend",
-            "recipe": {
-                "dataset_path": str(dataset),
-                "export_path": "${RUN_OUTPUT}/result.jsonl",
-                "process": [],
-                "executor_type": "default",
-                "np": 1,
-            },
+            "recipe": recipe,
             "postprocess": [],
+            "models": models or [],
         },
         validation={"ok": True, "errors": [], "warnings": []},
         artifact_paths=[],
@@ -69,8 +79,42 @@ class FakeDocker:
         return subprocess.CompletedProcess(command, returncode, stdout, stderr)
 
 
-def _backend(workspace: Path, worker: Path, fake: FakeDocker) -> DockerBackend:
-    return DockerBackend(workspace, worker, "test-image:tag", command_runner=fake)
+def _backend(
+    workspace: Path, worker: Path, fake: FakeDocker, model_store: LocalModelStore | None = None
+) -> DockerBackend:
+    return DockerBackend(workspace, worker, "test-image:tag", model_store=model_store, command_runner=fake)
+
+
+def _published_model(worker: Path) -> LocalModelStore:
+    fixture = worker / "fixtures" / "model-fixtures" / "fixture-model-v1"
+    fixture.mkdir(parents=True)
+    content = b"model-bytes\n"
+    (fixture / "weights.bin").write_bytes(content)
+    file_hash = "sha256:" + hashlib.sha256(content).hexdigest()
+    aggregate = "sha256:" + hashlib.sha256(b"weights.bin\0" + content + b"\0").hexdigest()
+    (fixture / "model-manifest.yaml").write_text(
+        "\n".join(
+            [
+                "artifact_id: fixture-model-v1",
+                "source: local-fixture",
+                "revision: v1",
+                f"sha256: {aggregate}",
+                f"size_bytes: {len(content)}",
+                "license:",
+                "  status: approved-for-test",
+                "files:",
+                "  - path: weights.bin",
+                f"    sha256: {file_hash}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    installer = LocalModelInstaller(worker, fixture.parent)
+    installer.stage_local("request-model", fixture)
+    store = LocalModelStore(worker)
+    store.publish("request-model")
+    return store
 
 
 def _write_result(worker_run: Path, run_id: str) -> None:
@@ -246,6 +290,58 @@ def test_docker_backend_rejects_cross_backend_and_forged_refs(tmp_path):
     assert forged.value.code == "INVALID_BACKEND_REF"
 
 
+def test_docker_backend_materializes_and_mounts_verified_models_readonly(tmp_path):
+    workspace, worker = tmp_path / "workspace", tmp_path / "worker"
+    workspace.mkdir()
+    model_store = _published_model(worker)
+    task_id, version = _approved_plan(
+        workspace,
+        models=[{"artifact_id": "fixture-model-v1"}],
+        recipe_extra={"model_path": "model-store://fixture-model-v1/weights.bin"},
+    )
+    fake = FakeDocker()
+    backend = _backend(workspace, worker, fake, model_store)
+
+    started = PlanRunner(workspace, backend=backend).start(task_id, version)
+    handle = RunHandle.from_dict(started["handle"])
+    record_path = workspace / ".dj" / "execution" / "docker" / f"{handle.backend_ref}.json"
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    recipe = (Path(record["worker_run_root"]) / "bundle" / "materialized-recipe.yaml").read_text(
+        encoding="utf-8"
+    )
+    create = next(call[0] for call in fake.calls if call[0][1] == "create")
+
+    assert "/models/fixture-model-v1/weights.bin" in recipe
+    assert any(
+        value.endswith("dst=/models/fixture-model-v1,readonly")
+        for index, value in enumerate(create)
+        if index > 0 and create[index - 1] == "--mount"
+    )
+    assert record["models"][0]["manifest"]["sha256"].startswith("sha256:")
+    _write_result(Path(record["worker_run_root"]), handle.run_id)
+    fake.state = "exited"
+    result = backend.collect(handle)
+    assert result.provenance["models"][0]["artifact_id"] == "fixture-model-v1"
+
+
+def test_docker_backend_rejects_model_file_absent_from_manifest_before_create(tmp_path):
+    workspace, worker = tmp_path / "workspace", tmp_path / "worker"
+    workspace.mkdir()
+    model_store = _published_model(worker)
+    task_id, version = _approved_plan(
+        workspace,
+        models=[{"artifact_id": "fixture-model-v1"}],
+        recipe_extra={"model_path": "model-store://fixture-model-v1/missing.bin"},
+    )
+    fake = FakeDocker()
+
+    with pytest.raises(PlanFlowError) as error:
+        PlanRunner(workspace, backend=_backend(workspace, worker, fake, model_store)).start(task_id, version)
+
+    assert error.value.code == "MODEL_FILE_NOT_DECLARED"
+    assert not any(call[0][1] == "create" for call in fake.calls)
+
+
 @pytest.mark.skipif(os.environ.get("DJ_RUN_DOCKER_INTEGRATION") != "1", reason="explicit Docker integration opt-in")
 def test_real_docker_backend_end_to_end_and_cleanup(tmp_path):
     workspace = tmp_path / "workspace"
@@ -281,3 +377,32 @@ def test_real_docker_backend_end_to_end_and_cleanup(tmp_path):
         ["docker", "inspect", record["container_id"]], capture_output=True, text=True, check=False
     )
     assert remaining.returncode != 0
+
+
+@pytest.mark.skipif(os.environ.get("DJ_RUN_DOCKER_INTEGRATION") != "1", reason="explicit Docker integration opt-in")
+def test_real_docker_backend_mounts_published_model_and_records_provenance(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    worker = Path("D:/dsh-worker")
+    store = LocalModelStore(worker)
+    artifact = store.resolve("fixture-tiny-model-v1")
+    task_id, version = _approved_plan(workspace, models=[{"artifact_id": artifact.manifest.artifact_id}])
+    backend = DockerBackend(
+        workspace, worker, "dj-plan-flow-cpu:local-v1", model_store=store
+    )
+    runner = PlanRunner(workspace, backend=backend)
+
+    started = runner.start(task_id, version)
+    handle = RunHandle.from_dict(started["handle"])
+    for _ in range(120):
+        state = runner.get(task_id, handle.run_id)
+        if state["status"] not in {"starting", "running"}:
+            break
+        time.sleep(0.5)
+    else:
+        backend.cancel(handle)
+        pytest.fail("real Docker model run did not finish within 60 seconds")
+
+    assert state["status"] == "succeeded", state
+    assert state["runtime_provenance"]["models"] == [artifact.manifest.to_provenance()]
+    backend.cleanup(handle)

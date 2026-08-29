@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import copy
+import re
 from pathlib import Path
 from typing import Any
 
@@ -43,6 +44,8 @@ _COMMON_OPERATOR_PARAMS = {
     "reversed_range",
 }
 _SECRET_MARKERS = ("api_key", "apikey", "password", "secret", "credential", "access_token")
+_MODEL_ARTIFACT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_MODEL_URI = re.compile(r"model-store://([A-Za-z0-9][A-Za-z0-9._-]{0,127})/(.+)\Z")
 
 
 def _config_fields() -> set[str]:
@@ -69,6 +72,64 @@ def _validate_secrets(value: Any, path: str, errors: list[dict[str, str]]) -> No
             _validate_secrets(item, f"{path}[{index}]", errors)
 
 
+def _walk_strings(value: Any, path: str):
+    if isinstance(value, dict):
+        for key, item in value.items():
+            yield from _walk_strings(item, f"{path}.{key}" if path else str(key))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from _walk_strings(item, f"{path}[{index}]")
+    elif isinstance(value, str):
+        yield path, value
+
+
+def _validate_models(plan: dict[str, Any], errors: list[dict[str, str]]) -> None:
+    raw_models = plan.get("models", [])
+    if not isinstance(raw_models, list):
+        errors.append({"code": "INVALID_MODELS", "path": "models", "message": "models must be an array"})
+        plan["models"] = []
+        raw_models = []
+    declared: set[str] = set()
+    for index, item in enumerate(raw_models):
+        location = f"models[{index}]"
+        if not isinstance(item, dict) or set(item) != {"artifact_id"}:
+            errors.append(
+                {"code": "INVALID_MODEL_REF", "path": location, "message": "Model ref must contain exactly artifact_id"}
+            )
+            continue
+        artifact_id = str(item.get("artifact_id") or "")
+        if not _MODEL_ARTIFACT_ID.fullmatch(artifact_id) or artifact_id.casefold() in declared:
+            errors.append(
+                {
+                    "code": "INVALID_MODEL_REF",
+                    "path": f"{location}.artifact_id",
+                    "message": "Model artifact_id is invalid or duplicated",
+                }
+            )
+            continue
+        declared.add(artifact_id.casefold())
+    for location, value in _walk_strings(plan.get("recipe", {}), "recipe"):
+        if not value.startswith("model-store://"):
+            continue
+        match = _MODEL_URI.fullmatch(value)
+        if (
+            not match
+            or Path(match.group(2)).is_absolute()
+            or ".." in Path(match.group(2)).parts
+            or ":" in match.group(2)
+            or "\\" in match.group(2)
+        ):
+            errors.append({"code": "INVALID_MODEL_URI", "path": location, "message": "Model URI is invalid"})
+        elif match.group(1).casefold() not in declared:
+            errors.append(
+                {
+                    "code": "MODEL_NOT_DECLARED",
+                    "path": location,
+                    "message": f"Model artifact is not declared: {match.group(1)}",
+                }
+            )
+
+
 def normalize_and_validate(
     workspace_root: str, raw_plan: dict[str, Any]
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
@@ -89,6 +150,7 @@ def normalize_and_validate(
     plan.setdefault("acceptance_criteria", [])
     plan.setdefault("approval_required", True)
     plan.setdefault("postprocess", [])
+    plan.setdefault("models", [])
 
     recipe = plan.get("recipe")
     if not isinstance(recipe, dict):
@@ -272,6 +334,8 @@ def normalize_and_validate(
     recipe["export_path"] = f"${{RUN_OUTPUT}}/{output_name}"
     recipe.pop("work_dir", None)
     recipe.pop("temp_dir", None)
+
+    _validate_models(plan, errors)
 
     artifact_paths: list[str] = []
     for item in plan.get("artifacts", []) or []:

@@ -24,6 +24,7 @@ from ..common import (
     write_yaml_atomic,
 )
 from ..store import PlanStore
+from ..model_store import LocalModelStore
 from .spec import RunHandle, RunResult, RunStatus, RuntimeSpec
 
 _BACKEND_REF = re.compile(r"[0-9a-f]{32}\Z")
@@ -82,6 +83,7 @@ class DockerBackend:
         *,
         tenant_id: str = "local-test",
         limits: DockerResourceLimits | None = None,
+        model_store: LocalModelStore | None = None,
         command_runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
     ):
         self.workspace = require_workspace(workspace_root)
@@ -98,13 +100,16 @@ class DockerBackend:
         self.image = str(image).strip()
         self.tenant_id = tenant_id
         self.limits = limits or DockerResourceLimits()
+        if model_store is not None and model_store.worker_root != self.worker_root:
+            raise PlanFlowError("BACKEND_MISMATCH", "DockerBackend and ModelStore must use the same worker root")
+        self.model_store = model_store
         self._command_runner = command_runner or subprocess.run
         self._state_root = self.workspace / ".dj" / "execution" / self.name
 
     def start(self, spec: RuntimeSpec) -> RunHandle:
         self._validate_spec_paths(spec)
         backend_ref = uuid.uuid4().hex
-        run_root = (self.worker_root / "runs" / f"run-f-{backend_ref}").resolve()
+        run_root = (self.worker_root / "runs" / f"run-docker-{backend_ref}").resolve()
         if not is_within(run_root, self.worker_root):
             raise PlanFlowError("PATH_NOT_ALLOWED", "Generated Docker run root escaped worker root")
         image_id = self._resolve_image_id()
@@ -129,6 +134,7 @@ class DockerBackend:
             "worker_run_root": str(run_root),
             "runtime_spec": spec.to_dict(),
             "limits": asdict(self.limits),
+            "models": staged["model_records"],
         }
         write_json_atomic(record_path, record)
         create_args = self._create_args(spec, record, staged)
@@ -256,7 +262,7 @@ class DockerBackend:
             if not is_within(path, self.workspace):
                 raise PlanFlowError("PATH_NOT_ALLOWED", f"RuntimeSpec {field} escaped workspace: {path}")
 
-    def _stage_run(self, spec: RuntimeSpec, run_root: Path) -> dict[str, Path]:
+    def _stage_run(self, spec: RuntimeSpec, run_root: Path) -> dict[str, Any]:
         plan = PlanStore(self.workspace).get_plan(spec.task_id, spec.plan_version)["plan"]
         if plan.get("postprocess"):
             raise PlanFlowError("DOCKER_POSTPROCESS_UNSUPPORTED", "Docker backend does not yet support postprocess scripts")
@@ -264,7 +270,9 @@ class DockerBackend:
         if recipe.get("executor_type", "default") != "default":
             raise PlanFlowError("DOCKER_EXECUTOR_UNSUPPORTED", "Docker backend currently supports executor_type=default")
         if recipe.get("custom_operator_paths"):
-            raise PlanFlowError("DOCKER_CUSTOM_OPERATOR_UNSUPPORTED", "Custom operators are not mounted in phase F")
+            raise PlanFlowError("DOCKER_CUSTOM_OPERATOR_UNSUPPORTED", "Custom operators are not mounted yet")
+        model_records = self._resolve_models(plan)
+        recipe = self._materialize_model_uris(recipe, model_records)
         dirs = {name: run_root / name for name in ("input", "bundle", "output", "work", "logs")}
         for path in dirs.values():
             path.mkdir(parents=True, exist_ok=False)
@@ -300,10 +308,73 @@ class DockerBackend:
                 "input": "/workspace/input", "bundle": "/run/bundle", "output": "/workspace/output",
                 "work": "/run/work", "temp": "/tmp",
             },
-            "models": [],
+            "models": [
+                {"artifact_id": item["artifact_id"], "path": f"/models/{item['artifact_id']}"}
+                for item in model_records
+            ],
         }
         write_json_atomic(dirs["bundle"] / "run-spec.json", run_spec)
+        dirs["model_records"] = model_records
         return dirs
+
+    def _resolve_models(self, plan: dict[str, Any]) -> list[dict[str, Any]]:
+        raw_models = plan.get("models", [])
+        if not isinstance(raw_models, list):
+            raise PlanFlowError("INVALID_MODELS", "Plan models must be an array")
+        if raw_models and self.model_store is None:
+            raise PlanFlowError("MODEL_STORE_REQUIRED", "Docker run declares models but no ModelStore is configured")
+        records: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for index, item in enumerate(raw_models):
+            if not isinstance(item, dict) or set(item) != {"artifact_id"}:
+                raise PlanFlowError("INVALID_MODEL_REF", f"Plan models[{index}] must contain exactly artifact_id")
+            artifact_id = str(item.get("artifact_id") or "")
+            if artifact_id.casefold() in seen:
+                raise PlanFlowError("INVALID_MODEL_REF", f"Duplicate model artifact: {artifact_id}")
+            seen.add(artifact_id.casefold())
+            artifact = self.model_store.resolve(artifact_id)  # type: ignore[union-attr]
+            records.append(
+                {
+                    "artifact_id": artifact_id,
+                    "host_path": str(artifact.path),
+                    "manifest": artifact.manifest.to_provenance(),
+                    "files": [entry.path for entry in artifact.manifest.files],
+                }
+            )
+        return records
+
+    @staticmethod
+    def _materialize_model_uris(recipe: dict[str, Any], models: list[dict[str, Any]]) -> dict[str, Any]:
+        by_id = {item["artifact_id"].casefold(): item for item in models}
+
+        def replace(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {key: replace(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [replace(item) for item in value]
+            if not isinstance(value, str) or not value.startswith("model-store://"):
+                return value
+            remainder = value.removeprefix("model-store://")
+            artifact_id, separator, relative_text = remainder.partition("/")
+            relative = Path(relative_text)
+            if (
+                not separator
+                or not relative_text
+                or relative.is_absolute()
+                or ".." in relative.parts
+                or ":" in relative_text
+                or "\\" in relative_text
+            ):
+                raise PlanFlowError("INVALID_MODEL_URI", f"Invalid model URI: {value}")
+            record = by_id.get(artifact_id.casefold())
+            if record is None:
+                raise PlanFlowError("MODEL_NOT_DECLARED", f"Model artifact is not declared: {artifact_id}")
+            normalized = relative.as_posix()
+            if normalized not in record["files"]:
+                raise PlanFlowError("MODEL_FILE_NOT_DECLARED", f"Model file is not declared: {value}")
+            return f"/models/{record['artifact_id']}/{normalized}"
+
+        return replace(recipe)
 
     def _trusted_input(self, source: Path) -> Path:
         try:
@@ -321,7 +392,7 @@ class DockerBackend:
             current = current.parent
         return resolved
 
-    def _create_args(self, spec: RuntimeSpec, record: dict[str, Any], dirs: dict[str, Path]) -> list[str]:
+    def _create_args(self, spec: RuntimeSpec, record: dict[str, Any], dirs: dict[str, Any]) -> list[str]:
         memory = str(self.limits.memory_bytes)
         args = [
             "create", "--name", record["container_name"],
@@ -340,6 +411,14 @@ class DockerBackend:
                 raise PlanFlowError("PATH_NOT_ALLOWED", f"Docker mount escaped worker root: {source}")
             value = f"type=bind,src={source},dst={destination}" + (",readonly" if readonly else "")
             args.extend(["--mount", value])
+        for model in record["models"]:
+            source = Path(model["host_path"]).resolve()
+            expected_root = (self.worker_root / "models").resolve()
+            if source.parent != expected_root or source.name != model["artifact_id"]:
+                raise PlanFlowError("INVALID_BACKEND_STATE", "Published model path escaped ModelStore")
+            args.extend(
+                ["--mount", f"type=bind,src={source},dst=/models/{model['artifact_id']},readonly"]
+            )
         args.extend([record["image_id"], "--run-spec", "/run/bundle/run-spec.json"])
         return args
 
@@ -451,6 +530,7 @@ class DockerBackend:
             "container_name": record["container_name"],
             "sandbox": {"read_only": True, "network": "none", "cap_drop": ["ALL"], "no_new_privileges": True},
             "resources": record["limits"],
+            "models": [item["manifest"] for item in record.get("models", [])],
             "collected_at": _now().isoformat(),
         }
         spec = RuntimeSpec.from_dict(record["runtime_spec"])
