@@ -8,10 +8,11 @@ import re
 import shutil
 import subprocess
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..common import (
     FileLock,
@@ -23,8 +24,8 @@ from ..common import (
     write_json_atomic,
     write_yaml_atomic,
 )
-from ..store import PlanStore
 from ..model_store import LocalModelStore
+from ..store import PlanStore
 from .spec import RunHandle, RunResult, RunStatus, RuntimeSpec
 
 _BACKEND_REF = re.compile(r"[0-9a-f]{32}\Z")
@@ -121,6 +122,7 @@ class DockerBackend:
             "backend": self.name,
             "backend_ref": backend_ref,
             "run_id": spec.run_id,
+            "tenant_id": self.tenant_id,
             "status": "starting",
             "container_id": None,
             "container_name": container_name,
@@ -356,19 +358,20 @@ class DockerBackend:
                 return value
             remainder = value.removeprefix("model-store://")
             artifact_id, separator, relative_text = remainder.partition("/")
+            record = by_id.get(artifact_id.casefold())
+            if record is None:
+                raise PlanFlowError("MODEL_NOT_DECLARED", f"Model artifact is not declared: {artifact_id}")
+            if not separator:
+                return f"/models/{record['artifact_id']}"
             relative = Path(relative_text)
             if (
-                not separator
-                or not relative_text
+                not relative_text
                 or relative.is_absolute()
                 or ".." in relative.parts
                 or ":" in relative_text
                 or "\\" in relative_text
             ):
                 raise PlanFlowError("INVALID_MODEL_URI", f"Invalid model URI: {value}")
-            record = by_id.get(artifact_id.casefold())
-            if record is None:
-                raise PlanFlowError("MODEL_NOT_DECLARED", f"Model artifact is not declared: {artifact_id}")
             normalized = relative.as_posix()
             if normalized not in record["files"]:
                 raise PlanFlowError("MODEL_FILE_NOT_DECLARED", f"Model file is not declared: {value}")

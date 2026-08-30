@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +38,11 @@ class PlanRunner:
         self.store = PlanStore(workspace_root)
         self.backend = backend or LocalProcessBackend(self.store.workspace)
 
-    def start(self, task_id: str, plan_version: str) -> dict[str, Any]:
+    def start(self, task_id: str, plan_version: str, *, timeout_seconds: int | None = None) -> dict[str, Any]:
+        if timeout_seconds is not None and (
+            isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or timeout_seconds <= 0
+        ):
+            raise PlanFlowError("INVALID_TIMEOUT", "timeout_seconds must be a positive integer")
         content_hash = self.store.verify_bundle(task_id, plan_version)
         plan_info = self.store.get_plan(task_id, plan_version)
         approval = plan_info.get("approval")
@@ -57,6 +61,7 @@ class PlanRunner:
             recipe = self._materialize(plan_info["plan"]["recipe"], run_path, output)
             write_yaml_atomic(run_path / "materialized-recipe.yaml", recipe)
             created_at = datetime.now(timezone.utc)
+            deadline = created_at + timedelta(seconds=timeout_seconds) if timeout_seconds else None
             state = {
                 "task_id": task_id,
                 "plan_version": plan_version,
@@ -80,6 +85,7 @@ class PlanRunner:
                 stderr_log=str(run_path / "logs" / "stderr.log"),
                 content_hash=content_hash,
                 created_at=created_at,
+                deadline=deadline,
             )
             try:
                 handle = self.backend.start(spec)
@@ -167,6 +173,21 @@ class PlanRunner:
         self.backend.cancel(handle)
         run_path = self.store.task_path(task_id) / "runs" / run_id
         state.update({"status": "cancelled", "updated_at": now_iso()})
+        write_json_atomic(run_path / "run.json", state)
+        return state
+
+    def cleanup(self, task_id: str, run_id: str) -> dict[str, Any]:
+        state = self.get(task_id, run_id)
+        if state.get("cleaned_at"):
+            return state
+        if state["status"] in {"starting", "running"}:
+            raise PlanFlowError("RUN_ACTIVE", f"Cannot clean up an active run: {run_id}")
+        raw = state.get("handle")
+        if not isinstance(raw, dict):
+            raise PlanFlowError("RUNNER_LOST", "Run has no backend handle for cleanup")
+        self.backend.cleanup(RunHandle.from_dict(raw))
+        state["cleaned_at"] = now_iso()
+        run_path = self.store.task_path(task_id) / "runs" / run_id
         write_json_atomic(run_path / "run.json", state)
         return state
 

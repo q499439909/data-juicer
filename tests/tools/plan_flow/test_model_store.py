@@ -11,7 +11,6 @@ from data_juicer.tools.plan_flow.common import PlanFlowError
 from data_juicer.tools.plan_flow.model_store import LocalModelInstaller, LocalModelStore
 from data_juicer.tools.plan_flow.validation import normalize_and_validate
 
-
 IMAGE_ID = "sha256:c8815bf653a3e4fe7946ce1bf1c5501a37949b44401dfe06914c77a30db76490"
 
 
@@ -148,10 +147,13 @@ def test_plan_validation_accepts_declared_model_uri_and_rejects_undeclared_one(t
     }
 
     normalized, validation, _ = normalize_and_validate(str(tmp_path), plan)
+    plan["recipe"]["process"][0]["fixture_mapper"]["model_path"] = "model-store://fixture-model-v1"
+    _, root_validation, _ = normalize_and_validate(str(tmp_path), plan)
     plan["models"] = []
     _, invalid, _ = normalize_and_validate(str(tmp_path), plan)
 
     assert validation["ok"] is True
+    assert root_validation["ok"] is True
     assert normalized["models"] == [{"artifact_id": "fixture-model-v1"}]
     assert {item["code"] for item in invalid["errors"]} == {"MODEL_NOT_DECLARED"}
 

@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools==80.9.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dsh-demo-token"
+version = "1.0.0"
+description = "Offline-only H1 capability dependency fixture"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["dsh_demo_token"]

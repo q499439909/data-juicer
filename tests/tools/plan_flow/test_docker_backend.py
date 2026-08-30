@@ -14,7 +14,6 @@ from data_juicer.tools.plan_flow.model_store import LocalModelInstaller, LocalMo
 from data_juicer.tools.plan_flow.runner import PlanRunner
 from data_juicer.tools.plan_flow.store import PlanStore
 
-
 IMAGE_ID = "sha256:" + "a" * 64
 CONTAINER_ID = "b" * 64
 
@@ -297,7 +296,7 @@ def test_docker_backend_materializes_and_mounts_verified_models_readonly(tmp_pat
     task_id, version = _approved_plan(
         workspace,
         models=[{"artifact_id": "fixture-model-v1"}],
-        recipe_extra={"model_path": "model-store://fixture-model-v1/weights.bin"},
+        recipe_extra={"model_path": "model-store://fixture-model-v1"},
     )
     fake = FakeDocker()
     backend = _backend(workspace, worker, fake, model_store)
@@ -311,7 +310,7 @@ def test_docker_backend_materializes_and_mounts_verified_models_readonly(tmp_pat
     )
     create = next(call[0] for call in fake.calls if call[0][1] == "create")
 
-    assert "/models/fixture-model-v1/weights.bin" in recipe
+    assert "model_path: /models/fixture-model-v1" in recipe
     assert any(
         value.endswith("dst=/models/fixture-model-v1,readonly")
         for index, value in enumerate(create)

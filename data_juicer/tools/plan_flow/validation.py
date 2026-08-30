@@ -45,7 +45,7 @@ _COMMON_OPERATOR_PARAMS = {
 }
 _SECRET_MARKERS = ("api_key", "apikey", "password", "secret", "credential", "access_token")
 _MODEL_ARTIFACT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
-_MODEL_URI = re.compile(r"model-store://([A-Za-z0-9][A-Za-z0-9._-]{0,127})/(.+)\Z")
+_MODEL_URI = re.compile(r"model-store://([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:/(.+))?\Z")
 
 
 def _config_fields() -> set[str]:
@@ -57,15 +57,18 @@ def _validate_secrets(value: Any, path: str, errors: list[dict[str, str]]) -> No
     if isinstance(value, dict):
         for key, item in value.items():
             child = f"{path}.{key}" if path else str(key)
-            if any(marker in str(key).lower() for marker in _SECRET_MARKERS) and str(key).lower() != "secret_ref":
-                if item not in (None, "", False):
-                    errors.append(
-                        {
-                            "code": "PLAINTEXT_SECRET",
-                            "path": child,
-                            "message": "Secrets must be supplied through the server environment",
-                        }
-                    )
+            if (
+                any(marker in str(key).lower() for marker in _SECRET_MARKERS)
+                and str(key).lower() != "secret_ref"
+                and item not in (None, "", False)
+            ):
+                errors.append(
+                    {
+                        "code": "PLAINTEXT_SECRET",
+                        "path": child,
+                        "message": "Secrets must be supplied through the server environment",
+                    }
+                )
             _validate_secrets(item, child, errors)
     elif isinstance(value, list):
         for index, item in enumerate(value):
@@ -112,12 +115,13 @@ def _validate_models(plan: dict[str, Any], errors: list[dict[str, str]]) -> None
         if not value.startswith("model-store://"):
             continue
         match = _MODEL_URI.fullmatch(value)
+        relative_text = match.group(2) if match else None
         if (
             not match
-            or Path(match.group(2)).is_absolute()
-            or ".." in Path(match.group(2)).parts
-            or ":" in match.group(2)
-            or "\\" in match.group(2)
+            or (relative_text is not None and Path(relative_text).is_absolute())
+            or (relative_text is not None and ".." in Path(relative_text).parts)
+            or (relative_text is not None and ":" in relative_text)
+            or (relative_text is not None and "\\" in relative_text)
         ):
             errors.append({"code": "INVALID_MODEL_URI", "path": location, "message": "Model URI is invalid"})
         elif match.group(1).casefold() not in declared:
