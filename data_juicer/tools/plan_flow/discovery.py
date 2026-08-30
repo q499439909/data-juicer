@@ -17,6 +17,7 @@ from .common import (
     sha256_file,
     write_json_atomic,
 )
+from .localization import localize_catalog_item, localize_detail
 
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff"}
 _VIDEO_SUFFIXES = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv", ".m4v"}
@@ -108,18 +109,25 @@ def operator_catalog() -> dict[str, Any]:
     for record in sorted(_searcher().op_records, key=lambda item: item.name):
         modalities, devices = _catalog_dimensions(record)
         operators.append(
-            {
+            localize_catalog_item(
+                {
                 "name": record.name,
                 "description": record.desc.strip(),
                 "category": str(record.type or "").strip() or "unknown",
                 "modalities": modalities,
                 "devices": devices,
-            }
+                }
+            )
         )
 
     return {
         "ok": True,
         "total": len(operators),
+        "translation": {
+            "locale": "zh-CN",
+            "translated": sum(item["translation_status"] == "translated" for item in operators),
+            "pending": sum(item["translation_status"] == "pending" for item in operators),
+        },
         "operators": operators,
         "facets": {
             "categories": sorted({item["category"] for item in operators}),
@@ -147,14 +155,16 @@ def operator_detail(name: str) -> dict[str, Any]:
     ]
     return {
         "ok": True,
-        "operator": {
-            "name": record.name,
-            "description": record.desc.strip(),
-            "category": str(record.type or "").strip() or "unknown",
-            "modalities": modalities,
-            "devices": devices,
-            "parameters": parameters,
-        },
+        "operator": localize_detail(
+            {
+                "name": record.name,
+                "description": record.desc.strip(),
+                "category": str(record.type or "").strip() or "unknown",
+                "modalities": modalities,
+                "devices": devices,
+                "parameters": parameters,
+            }
+        ),
     }
 
 

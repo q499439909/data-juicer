@@ -56,11 +56,24 @@ def test_operator_catalog_projects_the_live_registry_without_internal_paths():
     assert result["facets"]["devices"] == ["cpu", "gpu"]
     assert [item["name"] for item in result["operators"]] == sorted(item["name"] for item in result["operators"])
     first = result["operators"][0]
-    assert set(first) == {"name", "description", "category", "modalities", "devices"}
+    assert set(first) == {
+        "name",
+        "description",
+        "display_name_zh",
+        "description_zh",
+        "translation_status",
+        "category",
+        "modalities",
+        "devices",
+    }
     assert first["name"]
     assert first["category"]
     assert first["modalities"]
     assert first["devices"]
+    assert result["translation"] == {"locale": "zh-CN", "translated": result["total"], "pending": 0}
+    assert all(operator["translation_status"] == "translated" for operator in result["operators"])
+    assert all(operator["display_name_zh"] != operator["name"] for operator in result["operators"])
+    assert all(operator["description_zh"] for operator in result["operators"])
 
 
 def test_operator_catalog_uses_general_for_operators_without_a_modality_tag():
@@ -81,8 +94,22 @@ def test_operator_detail_includes_presentation_safe_parameter_metadata():
     assert operator["modalities"] == ["text"]
     assert operator["devices"] == ["cpu"]
     parameter = next(item for item in operator["parameters"] if item["name"] == "min_len")
-    assert set(parameter) == {"name", "type", "required", "default", "description"}
+    assert set(parameter) == {
+        "name",
+        "display_name_zh",
+        "type",
+        "required",
+        "default",
+        "description",
+        "description_zh",
+    }
     assert parameter["required"] is False
+    assert operator["display_name_zh"] == "文本长度过滤器"
+    assert operator["description_zh"]
+    assert operator["summary_zh"]
+    assert operator["translation_status"] == "translated"
+    assert parameter["display_name_zh"] == "最小长度"
+    assert parameter["description_zh"]
     json.dumps(result)
 
 
@@ -94,6 +121,75 @@ def test_operator_detail_reports_an_unknown_exact_name():
         "error": "operator_not_found",
         "message": "Operator was not found.",
     }
+
+
+def test_zh_cn_asset_covers_every_live_operator_and_parameter():
+    from data_juicer.tools.plan_flow.localization import contains_han, load_zh_cn
+
+    catalog = operator_catalog()
+    localized = load_zh_cn()["operators"]
+
+    assert set(localized) == {operator["name"] for operator in catalog["operators"]}
+    for item in catalog["operators"]:
+        entry = localized[item["name"]]
+        assert contains_han(entry["display_name"])
+        assert contains_han(entry["summary"])
+        assert contains_han(entry["description"])
+        detail = operator_detail(item["name"])["operator"]
+        assert set(entry["parameters"]) == {parameter["name"] for parameter in detail["parameters"]}
+        assert all(contains_han(value["display_name"]) for value in entry["parameters"].values())
+        assert all(contains_han(value["description"]) for value in entry["parameters"].values())
+
+
+def test_image_filter_localization_preserves_operator_specific_methods_and_rules():
+    aesthetics = operator_detail("image_aesthetics_filter")["operator"]
+    aspect_ratio = operator_detail("image_aspect_ratio_filter")["operator"]
+    face_count = operator_detail("image_face_count_filter")["operator"]
+    face_ratio = operator_detail("image_face_ratio_filter")["operator"]
+
+    assert "Hugging Face" in aesthetics["summary_zh"]
+    assert "美学得分" in aesthetics["description_zh"]
+    assert "any" in aesthetics["description_zh"] and "all" in aesthetics["description_zh"]
+    assert "宽度除以高度" in aspect_ratio["description_zh"]
+    assert "OpenCV" in face_count["summary_zh"]
+    assert "人脸数量" in face_count["description_zh"]
+    assert "最大人脸面积" in face_ratio["description_zh"]
+    assert len({
+        aesthetics["summary_zh"],
+        aspect_ratio["summary_zh"],
+        face_count["summary_zh"],
+        face_ratio["summary_zh"],
+    }) == 4
+
+
+def test_method_detection_prefers_registered_algorithm_over_incidental_platform_name():
+    operator = operator_detail("document_minhash_deduplicator")["operator"]
+    captioning = operator_detail("image_captioning_mapper")["operator"]
+    alphanumeric = operator_detail("alphanumeric_filter")["operator"]
+
+    assert "MinHash" in operator["summary_zh"]
+    assert "Hugging Face 模型" not in operator["summary_zh"]
+    assert "Hugging Face" in captioning["summary_zh"]
+    assert "SimHash" not in captioning["summary_zh"]
+    assert "Hugging Face" not in alphanumeric["summary_zh"]
+
+
+def test_untranslated_future_operator_remains_visible_with_pending_status():
+    from data_juicer.tools.plan_flow.localization import localize_catalog_item
+
+    item = {
+        "name": "future_custom_mapper",
+        "description": "A future custom operator.",
+        "category": "mapper",
+        "modalities": ["general"],
+        "devices": ["cpu"],
+    }
+
+    localized = localize_catalog_item(item)
+
+    assert localized["display_name_zh"] == item["name"]
+    assert localized["description_zh"] == item["description"]
+    assert localized["translation_status"] == "pending"
 
 
 def test_search_does_not_expose_runtime_configuration(monkeypatch):
