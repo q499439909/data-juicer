@@ -445,6 +445,7 @@ def test_approved_plan_runs_and_writes_report(tmp_path):
         "deadline",
         "backend_ref",
     }
+    assert started["handle"]["backend"] == "local-process"
     assert "pid" not in started
     deadline = time.time() + 60
     while time.time() < deadline:
