@@ -353,6 +353,30 @@ def test_real_docker_backend_end_to_end_and_cleanup(tmp_path):
     handle = RunHandle.from_dict(started["handle"])
     record_path = workspace / ".dj" / "execution" / "docker" / f"{handle.backend_ref}.json"
     record = json.loads(record_path.read_text(encoding="utf-8"))
+    inspected = json.loads(
+        subprocess.run(
+            ["docker", "inspect", record["container_id"]],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )[0]
+    host_config = inspected["HostConfig"]
+    mount_access = {mount["Destination"]: mount["RW"] for mount in inspected["Mounts"]}
+    assert inspected["Config"]["User"] == "10001:10001"
+    assert host_config["ReadonlyRootfs"] is True
+    assert host_config["NetworkMode"] == "none"
+    assert host_config["CapDrop"] == ["ALL"]
+    assert "no-new-privileges:true" in host_config["SecurityOpt"]
+    assert host_config["PidsLimit"] == 256
+    assert host_config["NanoCpus"] == 2_000_000_000
+    assert host_config["Memory"] == host_config["MemorySwap"] == 8 * 1024**3
+    assert mount_access == {
+        "/workspace/input": False,
+        "/run/bundle": False,
+        "/workspace/output": True,
+        "/run/work": True,
+    }
     for _ in range(120):
         state = runner.get(task_id, handle.run_id)
         if state["status"] not in {"starting", "running"}:

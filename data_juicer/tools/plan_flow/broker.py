@@ -125,6 +125,65 @@ class ExecutionBroker:
             write_json_atomic(self.state_root / f"{public_run_id}.json", record)
         return self._project(record, state)
 
+    def reconcile(self) -> tuple[str, ...]:
+        """Adopt untracked, policy-matching backend runs after a broker crash."""
+        candidates: dict[tuple[str, str], list[tuple[CapabilityDescriptor, BrokerProfile, Any]]] = {}
+        for capability_id in sorted(self.allowed_capabilities):
+            descriptor = self._allowed_capability(capability_id)
+            for profile in PROFILES.values():
+                backend = self.backend_factory(descriptor, profile)
+                discover = getattr(backend, "discover_managed_runs", None)
+                if discover is None:
+                    continue
+                for managed in discover():
+                    key = (managed.task_id, managed.handle.run_id)
+                    candidates.setdefault(key, []).append((descriptor, profile, managed))
+
+        adopted: list[str] = []
+        # Share the admission lock so recovered local-cpu runs cannot race a new start.
+        with FileLock(self.state_root / ".start.lock"):
+            tracked = {
+                (record.get("task_id"), record.get("internal_run_id"))
+                for path in self.state_root.glob("run_*.json")
+                for record in (read_json(path),)
+                if record.get("tenant_id") == self.tenant_id
+            }
+            for key, matches in candidates.items():
+                if key in tracked or len(matches) != 1:
+                    continue
+                descriptor, profile, managed = matches[0]
+                self._validate_capability_models(descriptor, managed.task_id, managed.plan_version)
+                run_path = (
+                    PlanStore(self.workspace).task_path(managed.task_id)
+                    / "runs" / managed.handle.run_id / "run.json"
+                )
+                if not run_path.is_file():
+                    continue
+                state = read_json(run_path)
+                if (
+                    state.get("task_id") != managed.task_id
+                    or state.get("plan_version") != managed.plan_version
+                    or state.get("handle") != managed.handle.to_dict()
+                ):
+                    continue
+                public_run_id = "run_" + uuid.uuid4().hex
+                record = {
+                    "schema_version": 1,
+                    "run_id": public_run_id,
+                    "tenant_id": self.tenant_id,
+                    "task_id": managed.task_id,
+                    "plan_version": managed.plan_version,
+                    "internal_run_id": managed.handle.run_id,
+                    "capability_id": descriptor.capability_id,
+                    "profile": profile.name,
+                    "created_at": state["created_at"],
+                    "reconciled": True,
+                }
+                write_json_atomic(self.state_root / f"{public_run_id}.json", record)
+                tracked.add(key)
+                adopted.append(public_run_id)
+        return tuple(adopted)
+
     def _validate_capability_models(
         self, descriptor: CapabilityDescriptor, task_id: str, plan_version: str
     ) -> None:
@@ -250,6 +309,7 @@ class ExecutionBroker:
 
 
 def create_broker_app(broker: ExecutionBroker) -> FastAPI:
+    broker.reconcile()
     app = FastAPI(title="Data-Juicer Local Execution Broker", docs_url=None, redoc_url=None)
 
     @app.exception_handler(PlanFlowError)

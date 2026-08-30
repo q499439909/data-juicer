@@ -1,3 +1,5 @@
+import json
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -6,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from data_juicer.tools.plan_flow.broker import (
     ExecutionBroker,
+    PROFILES,
     create_broker_app,
     serve_broker,
 )
@@ -14,7 +17,13 @@ from data_juicer.tools.plan_flow.capability import (
     LocalCapabilityCatalog,
 )
 from data_juicer.tools.plan_flow.common import PlanFlowError
-from data_juicer.tools.plan_flow.execution import RunHandle, RunResult, RunStatus
+from data_juicer.tools.plan_flow.execution import (
+    DockerBackend,
+    RunHandle,
+    RunResult,
+    RunStatus,
+)
+from data_juicer.tools.plan_flow.runner import PlanRunner
 from data_juicer.tools.plan_flow.store import PlanStore
 
 IMAGE_ID = "sha256:" + "a" * 64
@@ -55,6 +64,33 @@ class LifecycleBackend(CompletedBackend):
 
     def cleanup(self, handle):
         self.cleanup_count += 1
+
+
+class DiscoverableDocker:
+    def __init__(self):
+        self.container_id = "b" * 64
+        self.labels = {}
+        self.calls = []
+
+    def __call__(self, command, **kwargs):
+        self.calls.append(command)
+        args = command[1:]
+        stdout = ""
+        if args[:2] == ["image", "inspect"]:
+            stdout = json.dumps([{"Id": args[2]}])
+        elif args[0] == "create":
+            for index, value in enumerate(args):
+                if value == "--label":
+                    key, label_value = args[index + 1].split("=", 1)
+                    self.labels[key] = label_value
+            stdout = self.container_id + "\n"
+        elif args[:2] == ["ps", "-a"]:
+            stdout = (self.container_id if "--no-trunc" in args else self.container_id[:12]) + "\n"
+        elif args[0] == "inspect":
+            stdout = json.dumps(
+                [{"Config": {"Labels": self.labels}, "State": {"Status": "running", "ExitCode": 0}}]
+            )
+        return subprocess.CompletedProcess(command, 0, stdout, "")
 
 
 def _approved_plan(workspace: Path) -> tuple[str, str]:
@@ -150,6 +186,87 @@ def test_restarted_broker_recovers_a_run_by_its_public_id(tmp_path):
     assert recovered.status_code == 200
     assert recovered.json()["run_id"] == started["run_id"]
     assert recovered.json()["status"] == "succeeded"
+
+
+def test_app_startup_reconciles_an_allowlisted_same_tenant_docker_orphan(tmp_path):
+    workspace, worker = tmp_path / "workspace", tmp_path / "worker"
+    workspace.mkdir()
+    worker.mkdir()
+    task_id, plan_version = _approved_plan(workspace)
+    docker = DiscoverableDocker()
+    backend = DockerBackend(
+        workspace,
+        worker,
+        IMAGE_ID,
+        tenant_id="local-test",
+        limits=PROFILES["local-tiny"].limits,
+        command_runner=docker,
+    )
+    PlanRunner(workspace, backend=backend).start(task_id, plan_version, timeout_seconds=300)
+    _broker(workspace, worker)
+    broker = ExecutionBroker(
+        workspace,
+        worker,
+        allowed_capabilities=("broker-demo-v1",),
+        backend_factory=lambda descriptor, profile: DockerBackend(
+            workspace,
+            worker,
+            IMAGE_ID,
+            tenant_id="local-test",
+            limits=profile.limits,
+            command_runner=docker,
+        ),
+    )
+
+    client = TestClient(create_broker_app(broker))
+    records = list(broker.state_root.glob("run_*.json"))
+
+    assert len(records) == 1
+    recovered = client.get(f"/v1/runs/{records[0].stem}").json()
+    assert recovered["task_id"] == task_id
+    assert recovered["plan_version"] == plan_version
+    assert recovered["status"] == "running"
+    assert broker.reconcile() == ()
+    assert any(call[1:4] == ["ps", "-a", "--no-trunc"] for call in docker.calls)
+
+
+@pytest.mark.parametrize(
+    ("orphan_tenant", "orphan_image"),
+    [("another-tenant", IMAGE_ID), ("local-test", "sha256:" + "c" * 64)],
+)
+def test_reconcile_ignores_foreign_tenant_and_unknown_image(tmp_path, orphan_tenant, orphan_image):
+    workspace, worker = tmp_path / "workspace", tmp_path / "worker"
+    workspace.mkdir()
+    worker.mkdir()
+    task_id, plan_version = _approved_plan(workspace)
+    docker = DiscoverableDocker()
+    PlanRunner(
+        workspace,
+        backend=DockerBackend(
+            workspace,
+            worker,
+            orphan_image,
+            tenant_id=orphan_tenant,
+            limits=PROFILES["local-tiny"].limits,
+            command_runner=docker,
+        ),
+    ).start(task_id, plan_version, timeout_seconds=300)
+    _broker(workspace, worker)
+    broker = ExecutionBroker(
+        workspace,
+        worker,
+        allowed_capabilities=("broker-demo-v1",),
+        backend_factory=lambda descriptor, profile: DockerBackend(
+            workspace,
+            worker,
+            IMAGE_ID,
+            tenant_id="local-test",
+            limits=profile.limits,
+            command_runner=docker,
+        ),
+    )
+
+    assert broker.reconcile() == ()
 
 
 def test_cancel_is_idempotent_and_cleanup_runs_once(tmp_path):

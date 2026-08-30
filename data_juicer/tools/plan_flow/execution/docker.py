@@ -67,6 +67,15 @@ class DockerResourceLimits:
             raise PlanFlowError("INVALID_RESOURCE_LIMIT", "Docker stop grace period must not be negative")
 
 
+@dataclass(frozen=True)
+class DockerManagedRun:
+    """Generic identity needed by the broker to adopt a managed Docker run."""
+
+    task_id: str
+    plan_version: str
+    handle: RunHandle
+
+
 class DockerBackend:
     """Execute a RuntimeSpec in a locked-down Docker container.
 
@@ -157,6 +166,51 @@ class DockerBackend:
             record_path.unlink(missing_ok=True)
             raise
         return RunHandle(self.name, spec.run_id, spec.created_at, spec.deadline, backend_ref)
+
+    def discover_managed_runs(self) -> tuple[DockerManagedRun, ...]:
+        """Find this backend's containers without exposing Docker identity upstream."""
+        listed = self._docker([
+            "ps", "-a", "--no-trunc", "--filter", "label=dj.managed=true",
+            "--filter", f"label=dj.tenant-id={self.tenant_id}", "--format", "{{.ID}}",
+        ])
+        container_ids = {
+            line.strip() for line in listed.stdout.splitlines()
+            if re.fullmatch(r"[0-9a-f]{12,64}", line.strip())
+        }
+        if not container_ids:
+            return ()
+        expected_image_id = self._resolve_image_id()
+        expected_limits = asdict(self.limits)
+        discovered: list[DockerManagedRun] = []
+        for path in sorted(self._state_root.glob("*.json")):
+            record = read_json(path)
+            if (
+                record.get("schema_version") != 1
+                or record.get("backend") != self.name
+                or record.get("tenant_id") != self.tenant_id
+                or record.get("image_id") != expected_image_id
+                or record.get("limits") != expected_limits
+                or record.get("container_id") not in container_ids
+            ):
+                continue
+            spec = RuntimeSpec.from_dict(record.get("runtime_spec"))
+            if Path(spec.workspace_root).resolve() != self.workspace:
+                continue
+            inspected = self._container_inspect(record)
+            labels = ((inspected or {}).get("Config") or {}).get("Labels") or {}
+            expected_labels = {
+                "dj.managed": "true",
+                "dj.tenant-id": self.tenant_id,
+                "dj.task-id": spec.task_id,
+                "dj.run-id": spec.run_id,
+                "dj.backend-ref": str(record.get("backend_ref")),
+            }
+            if any(labels.get(key) != value for key, value in expected_labels.items()):
+                continue
+            handle = RunHandle(self.name, spec.run_id, spec.created_at, spec.deadline, str(record["backend_ref"]))
+            self._load_record(handle)
+            discovered.append(DockerManagedRun(spec.task_id, spec.plan_version, handle))
+        return tuple(discovered)
 
     def inspect(self, handle: RunHandle) -> RunStatus:
         record = self._load_record(handle, missing_ok=True)
@@ -401,6 +455,7 @@ class DockerBackend:
             "create", "--name", record["container_name"],
             "--label", "dj.managed=true", "--label", f"dj.run-id={spec.run_id}",
             "--label", f"dj.backend-ref={record['backend_ref']}", "--label", f"dj.task-id={spec.task_id}",
+            "--label", f"dj.tenant-id={self.tenant_id}",
             "--user", "10001:10001", "--read-only", "--network", "none", "--cap-drop", "ALL",
             "--security-opt", "no-new-privileges:true", "--pids-limit", str(self.limits.pids_limit),
             "--cpus", str(self.limits.cpus), "--memory", memory, "--memory-swap", memory,
