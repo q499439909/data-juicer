@@ -9,7 +9,12 @@ from pathlib import Path
 import pytest
 
 from data_juicer.tools.plan_flow.common import PlanFlowError
-from data_juicer.tools.plan_flow.execution import DockerBackend, RunHandle, RuntimeSpec
+from data_juicer.tools.plan_flow.execution import (
+    DockerBackend,
+    LocalProcessBackend,
+    RunHandle,
+    RuntimeSpec,
+)
 from data_juicer.tools.plan_flow.model_store import LocalModelInstaller, LocalModelStore
 from data_juicer.tools.plan_flow.runner import PlanRunner
 from data_juicer.tools.plan_flow.store import PlanStore
@@ -429,3 +434,45 @@ def test_real_docker_backend_mounts_published_model_and_records_provenance(tmp_p
     assert state["status"] == "succeeded", state
     assert state["runtime_provenance"]["models"] == [artifact.manifest.to_provenance()]
     backend.cleanup(handle)
+
+
+@pytest.mark.skipif(os.environ.get("DJ_RUN_DOCKER_INTEGRATION") != "1", reason="explicit Docker integration opt-in")
+def test_same_approved_plan_has_equivalent_local_and_docker_business_output(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    dataset = workspace / "equivalence.jsonl"
+    dataset.write_text(
+        '{"text":"  hello   world  "}\n{"text":"line\\twith   spaces"}\n',
+        encoding="utf-8",
+    )
+    task_id, version = _approved_plan(
+        workspace,
+        dataset,
+        recipe_extra={"process": [{"whitespace_normalization_mapper": {}}]},
+    )
+
+    def finish(runner, run_id):
+        for _ in range(120):
+            state = runner.get(task_id, run_id)
+            if state["status"] not in {"starting", "running"}:
+                return state
+            time.sleep(0.5)
+        pytest.fail(f"run did not finish: {run_id}")
+
+    local_runner = PlanRunner(workspace, backend=LocalProcessBackend(workspace))
+    local_started = local_runner.start(task_id, version)
+    local_state = finish(local_runner, local_started["run_id"])
+    docker_backend = DockerBackend(workspace, Path("D:/dsh-worker"), "dj-plan-flow-cpu:local-v1")
+    docker_runner = PlanRunner(workspace, backend=docker_backend)
+    docker_started = docker_runner.start(task_id, version)
+    docker_state = finish(docker_runner, docker_started["run_id"])
+
+    def records(state):
+        output = Path(state["output_dir"]) / "result.jsonl"
+        return [json.loads(line) for line in output.read_text(encoding="utf-8").splitlines()]
+
+    expected = [{"text": "hello   world"}, {"text": "line with   spaces"}]
+    assert local_state["status"] == docker_state["status"] == "succeeded"
+    assert records(local_state) == records(docker_state) == expected
+    local_runner.cleanup(task_id, local_started["run_id"])
+    docker_runner.cleanup(task_id, docker_started["run_id"])
