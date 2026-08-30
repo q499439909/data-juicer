@@ -51,6 +51,26 @@ def get_capability_schemas(operator_names: list[str]) -> dict[str, Any]:
     return _call(service.get_capability_schemas, operator_names)
 
 
+def resolve_capabilities(requirements: list[str]) -> dict[str, Any]:
+    """Resolve already approved reusable capabilities before proposing any new operator."""
+    return _call(service.resolve_capabilities, requirements)
+
+
+def prepare_capability(capability: dict[str, Any], operator_artifacts: list[dict[str, Any]]) -> dict[str, Any]:
+    """Freeze, sandbox-build, and validate one capability proposal containing one or more operator artifacts."""
+    return _call(service.prepare_capability, capability, operator_artifacts)
+
+
+def get_capability(capability_id: str) -> dict[str, Any]:
+    """Read an approved immutable capability descriptor."""
+    return _call(service.get_capability, capability_id)
+
+
+def approve_capability(proposal_id: str, content_hash: str, note: str = "") -> dict[str, Any]:
+    """Approve the exact post-validation capability proposal hash and publish all covered artifacts."""
+    return _call(service.approve_capability, proposal_id, content_hash, note)
+
+
 def operator_catalog() -> dict[str, Any]:
     """List every operator visible in the live Data-Juicer registry."""
     return _call(service.operator_catalog)
@@ -126,6 +146,10 @@ def create_mcp_server(port: str = "8000"):
         inspect_input,
         search_capabilities,
         get_capability_schemas,
+        resolve_capabilities,
+        prepare_capability,
+        get_capability,
+        approve_capability,
         prepare_plan,
         get_plan,
         preview_plan,

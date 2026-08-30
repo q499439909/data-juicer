@@ -1,6 +1,7 @@
 import json
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -420,6 +421,10 @@ def test_mcp_exposes_small_plan_first_surface():
         "inspect_input",
         "search_capabilities",
         "get_capability_schemas",
+        "resolve_capabilities",
+        "prepare_capability",
+        "get_capability",
+        "approve_capability",
         "prepare_plan",
         "get_plan",
         "preview_plan",
@@ -430,10 +435,53 @@ def test_mcp_exposes_small_plan_first_surface():
     }
 
 
+def test_production_service_refuses_to_fall_back_to_shared_local_process(tmp_path):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
+    service = PlanFlowService()
+    prepared = service.prepare_plan(str(tmp_path), _plan(dataset))
+    service.approve_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"], prepared["content_hash"])
+
+    with pytest.raises(PlanFlowError) as missing:
+        service.run_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"])
+    assert missing.value.code == "BROKER_REQUIRED"
+
+
+def test_production_service_resolves_runtime_then_submits_public_broker_run(tmp_path):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
+    resolution_calls = []
+    broker_calls = []
+
+    class Resolver:
+        def resolve(self, **kwargs):
+            resolution_calls.append(kwargs)
+            return SimpleNamespace(runtime_id="runtime-" + "1" * 24)
+
+    class Broker:
+        def start(self, **kwargs):
+            broker_calls.append(kwargs)
+            return {"run_id": "run_" + "2" * 32, "task_id": kwargs["task_id"], "status": "running"}
+
+    plan = _plan(dataset)
+    plan["capability_bindings"] = [
+        {"capability_id": "op-region-stats-v1-capability", "operators": ["masked_region_statistics_mapper"]}
+    ]
+    service = PlanFlowService(runtime_resolver=Resolver(), broker_client=Broker())
+    prepared = service.prepare_plan(str(tmp_path), plan)
+    service.approve_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"], prepared["content_hash"])
+
+    run = service.run_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"])["run"]
+
+    assert run["run_id"].startswith("run_")
+    assert resolution_calls[0]["capability_ids"] == ("op-region-stats-v1-capability",)
+    assert broker_calls[0]["runtime_id"] == "runtime-" + "1" * 24
+
+
 def test_approved_plan_runs_and_writes_report(tmp_path):
     dataset = tmp_path / "input.jsonl"
     dataset.write_text("\n".join(json.dumps({"text": value}) for value in ["a", "hello"]) + "\n", encoding="utf-8")
-    service = PlanFlowService()
+    service = PlanFlowService.local_for_tests()
     prepared = service.prepare_plan(str(tmp_path), _plan(dataset))
     service.approve_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"], prepared["content_hash"])
     started = service.run_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"])["run"]
