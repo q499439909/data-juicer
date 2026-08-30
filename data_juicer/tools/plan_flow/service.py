@@ -151,7 +151,16 @@ class PlanFlowService:
             store.task_path(task_id)
         if base_plan_version:
             store.plan_path(task_id, base_plan_version)
-        normalized, validation, artifacts = normalize_and_validate(str(store.workspace), plan)
+        bindings = plan.get("capability_bindings", []) if isinstance(plan, dict) else []
+        external_names = frozenset(
+            str(name)
+            for binding in bindings
+            if isinstance(binding, dict)
+            for name in binding.get("operators", [])
+        )
+        normalized, validation, artifacts = normalize_and_validate(
+            str(store.workspace), plan, external_operator_names=external_names
+        )
         saved = store.save_plan(
             task_id=task_id,
             plan=normalized,

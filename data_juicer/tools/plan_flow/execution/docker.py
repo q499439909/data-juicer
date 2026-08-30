@@ -25,6 +25,7 @@ from ..common import (
     write_yaml_atomic,
 )
 from ..model_store import LocalModelStore
+from ..dataset_artifacts import DatasetSnapshotter
 from ..store import PlanStore
 from .spec import RunHandle, RunResult, RunStatus, RuntimeSpec
 
@@ -339,6 +340,15 @@ class DockerBackend:
             if not isinstance(config, dict) or config.get("type") != "local" or not config.get("path"):
                 raise PlanFlowError("NON_LOCAL_DATASET", "Docker backend only accepts local dataset configs")
             source = self._trusted_input(Path(str(config["path"])))
+            if source.is_file() and source.suffix.casefold() == ".jsonl":
+                snapshot_root = dirs["input"] / f"snapshot-{index}"
+                snapshot = DatasetSnapshotter(allowed_input_roots=(self.workspace,)).create(
+                    source,
+                    snapshot_root,
+                    container_root=f"/workspace/input/snapshot-{index}",
+                )
+                config["path"] = f"/workspace/input/snapshot-{index}/{snapshot.dataset_path.name}"
+                continue
             destination = dirs["input"] / f"dataset-{index}{source.suffix if source.is_file() else ''}"
             if source.is_dir():
                 shutil.copytree(source, destination)

@@ -55,7 +55,7 @@ class PlanRunner:
             run_path = runs_root / run_id
             run_path.mkdir(parents=True)
             task = read_yaml(task_path / "task.yaml")
-            output = self.store.outputs_root / task["task_slug"] / plan_version / run_id
+            output = self.store.outputs_root / task["task_slug"] / task_id / plan_version / run_id
             output.mkdir(parents=True, exist_ok=False)
             (run_path / "logs").mkdir()
             recipe = self._materialize(plan_info["plan"]["recipe"], run_path, output)

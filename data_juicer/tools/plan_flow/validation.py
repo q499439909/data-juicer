@@ -135,7 +135,7 @@ def _validate_models(plan: dict[str, Any], errors: list[dict[str, str]]) -> None
 
 
 def normalize_and_validate(
-    workspace_root: str, raw_plan: dict[str, Any]
+    workspace_root: str, raw_plan: dict[str, Any], *, external_operator_names: frozenset[str] = frozenset()
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     workspace = require_workspace(workspace_root)
     plan = copy.deepcopy(raw_plan)
@@ -257,7 +257,20 @@ def normalize_and_validate(
             name, params = next(iter(step.items()))
             schema = operator_schema(name)
             if schema is None:
-                errors.append({"code": "OP_NOT_FOUND", "path": location, "message": f"Unknown operator: {name}"})
+                if name not in external_operator_names:
+                    errors.append({"code": "OP_NOT_FOUND", "path": location, "message": f"Unknown operator: {name}"})
+                    continue
+                if params is None:
+                    params = {}
+                    step[name] = params
+                if not isinstance(params, dict):
+                    errors.append(
+                        {
+                            "code": "INVALID_OPERATOR_PARAMS",
+                            "path": location,
+                            "message": "External operator parameters must be an object",
+                        }
+                    )
                 continue
             if params is None:
                 params = {}

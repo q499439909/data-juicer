@@ -40,7 +40,13 @@ class DatasetSnapshotter:
         self.max_files = max_files
         self.max_total_bytes = max_total_bytes
 
-    def create(self, source: str | Path, staging_root: str | Path) -> DatasetSnapshot:
+    def create(
+        self,
+        source: str | Path,
+        staging_root: str | Path,
+        *,
+        container_root: str = "/workspace/input",
+    ) -> DatasetSnapshot:
         source_path = Path(source).resolve()
         self._require_allowed(source_path)
         if source_path.is_symlink():
@@ -77,7 +83,7 @@ class DatasetSnapshotter:
             target = media_root / target_name
             if not target.exists():
                 shutil.copy2(resolved, target)
-            container_path = f"/workspace/input/media/{target_name}"
+            container_path = f"{container_root.rstrip('/')}/media/{target_name}"
             copied[resolved] = container_path
             inventory.append({
                 "source_name": resolved.name,
@@ -125,7 +131,7 @@ class DatasetSnapshotter:
             "record_count": len(records),
             "copied_file_count": len(copied),
             "total_bytes": total_bytes,
-            "dataset_path": "/workspace/input/dataset.jsonl",
+            "dataset_path": f"{container_root.rstrip('/')}/dataset.jsonl",
             "files": inventory,
         }
         write_json_atomic(staging / "snapshot-manifest.json", manifest)
