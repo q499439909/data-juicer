@@ -69,6 +69,11 @@ class FetchRequest:
                 raise PlanFlowError("INVALID_FETCH_REQUEST", f"unsafe artifact path: {raw_path}")
             if path.suffix.casefold() not in suffixes:
                 raise PlanFlowError("UNSAFE_ARTIFACT_FORMAT", f"Artifact format is not allowed: {raw_path}")
+            if self.kind == "dependency" and path.suffix.casefold() == ".whl" and "manylinux" not in path.name:
+                raise PlanFlowError(
+                    "WHEEL_PLATFORM_MISMATCH",
+                    f"Docker runtime dependency must be a manylinux wheel: {raw_path}",
+                )
             if not _SHA256.fullmatch(str(self.expected_sha256[raw_path] or "")):
                 raise PlanFlowError("INVALID_FETCH_REQUEST", f"Invalid SHA-256 for {raw_path}")
 

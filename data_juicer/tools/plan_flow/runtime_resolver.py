@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -128,7 +129,13 @@ class RuntimeResolver:
         index = self.index_root / f"{composition_hash.removeprefix('sha256:')}.json"
         with FileLock(self.index_root / f".{composition_hash.removeprefix('sha256:')}.lock"):
             if index.is_file():
-                return self.runtimes.resolve(str(read_json(index)["runtime_id"]))
+                try:
+                    return self.runtimes.resolve(str(read_json(index)["runtime_id"]))
+                except (KeyError, TypeError, json.JSONDecodeError, OSError, UnicodeError, PlanFlowError) as exc:
+                    raise PlanFlowError(
+                        "RUNTIME_CACHE_CORRUPT",
+                        "Runtime composition cache is corrupt; it must be repaired before rebuilding",
+                    ) from exc
             build_spec = RuntimeBuildSpec(
                 composition_hash,
                 self.base_image_id,

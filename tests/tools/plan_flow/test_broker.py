@@ -9,7 +9,9 @@ from fastapi.testclient import TestClient
 from data_juicer.tools.plan_flow.broker import (
     ExecutionBroker,
     PROFILES,
+    RuntimeExecutionBroker,
     create_broker_app,
+    create_runtime_broker_app,
     serve_broker,
 )
 from data_juicer.tools.plan_flow.capability import (
@@ -25,6 +27,7 @@ from data_juicer.tools.plan_flow.execution import (
 )
 from data_juicer.tools.plan_flow.runner import PlanRunner
 from data_juicer.tools.plan_flow.store import PlanStore
+from data_juicer.tools.plan_flow.runtime_manifest import RuntimeCatalog, RuntimeManifest
 
 IMAGE_ID = "sha256:" + "a" * 64
 
@@ -393,3 +396,53 @@ def test_http_request_cannot_supply_docker_arguments(tmp_path):
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_runtime_broker_accepts_runtime_id_and_rejects_legacy_capability_field(tmp_path):
+    workspace = tmp_path / "workspace"
+    worker = tmp_path / "worker"
+    workspace.mkdir()
+    worker.mkdir()
+    task_id, plan_version = _approved_plan(workspace)
+    runtime = RuntimeManifest.create(
+        base_image_id="sha256:" + "a" * 64,
+        data_juicer_identity="git:test@1",
+        operator_artifacts=(),
+        dependency_lock_hash="sha256:" + "b" * 64,
+        model_refs=(),
+        image_id="sha256:" + "c" * 64,
+        bootstrap_version="1",
+        profile_family="cpu",
+    )
+    RuntimeCatalog(worker).publish(runtime)
+    broker = RuntimeExecutionBroker(
+        workspace,
+        worker,
+        allowed_runtimes=(runtime.runtime_id,),
+        backend_factory=lambda _descriptor, _profile: CompletedBackend(),
+    )
+    client = TestClient(create_runtime_broker_app(broker))
+
+    response = client.post(
+        "/v1/runs",
+        json={
+            "task_id": task_id,
+            "plan_version": plan_version,
+            "runtime_id": runtime.runtime_id,
+            "profile": "local-tiny",
+        },
+    )
+    rejected = client.post(
+        "/v1/runs",
+        json={
+            "task_id": task_id,
+            "plan_version": plan_version,
+            "capability_id": runtime.runtime_id,
+            "profile": "local-tiny",
+        },
+    )
+
+    assert response.status_code == 201
+    assert response.json()["runtime_id"] == runtime.runtime_id
+    assert "capability_id" not in response.json()
+    assert rejected.status_code == 422

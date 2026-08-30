@@ -104,3 +104,21 @@ def test_fetcher_exposes_only_structured_requests_not_shell_commands(tmp_path):
     assert "command" not in fields
     assert "args" not in fields
     assert not hasattr(ArtifactFetcher(worker), "run")
+
+
+def test_fetch_rejects_windows_wheel_for_linux_runtime(tmp_path):
+    request = FetchRequest(
+        request_id="wrong-wheel-request",
+        artifact_id="wrong-wheel-v1",
+        kind="dependency",
+        source=str(tmp_path),
+        revision="4.10.0.84",
+        files=("opencv_python-4.10.0-cp312-win_amd64.whl",),
+        expected_sha256={"opencv_python-4.10.0-cp312-win_amd64.whl": "sha256:" + "1" * 64},
+        max_bytes=100,
+        license_status="approved-for-test",
+    )
+
+    with pytest.raises(PlanFlowError) as mismatch:
+        ArtifactFetcher(tmp_path, allowed_local_roots=(tmp_path,)).fetch(request)
+    assert mismatch.value.code == "WHEEL_PLATFORM_MISMATCH"

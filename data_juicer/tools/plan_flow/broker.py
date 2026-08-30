@@ -28,6 +28,7 @@ from .common import (
 from .execution import DockerBackend, DockerResourceLimits, ExecutionBackend
 from .model_store import LocalModelStore
 from .runner import PlanRunner
+from .runtime_manifest import RuntimeCatalog
 from .store import PlanStore
 
 _BROKER_RUN_ID = re.compile(r"run_[0-9a-f]{32}\Z")
@@ -62,6 +63,17 @@ class StartRunRequest(BaseModel):
     task_id: str
     plan_version: str
     capability_id: str
+    profile: str
+
+
+class RuntimeStartRunRequest(BaseModel):
+    """Production request: callers select a composed runtime, never an image."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    task_id: str
+    plan_version: str
+    runtime_id: str
     profile: str
 
 
@@ -345,6 +357,117 @@ def create_broker_app(broker: ExecutionBroker) -> FastAPI:
     return app
 
 
+class RuntimeExecutionBroker:
+    """Runtime-id facade over the proven broker lifecycle and reconciliation core."""
+
+    def __init__(
+        self,
+        workspace_root: str | Path,
+        worker_root: str | Path,
+        *,
+        allowed_runtimes: tuple[str, ...],
+        tenant_id: str = "local-test",
+        backend_factory: BackendFactory | None = None,
+    ):
+        if not allowed_runtimes:
+            raise PlanFlowError("EMPTY_RUNTIME_ALLOWLIST", "Broker requires at least one allowed runtime")
+        worker = Path(worker_root).resolve()
+        runtime_catalog = RuntimeCatalog(worker)
+        compatibility_catalog = LocalCapabilityCatalog(worker)
+        for runtime_id in allowed_runtimes:
+            runtime = runtime_catalog.resolve(runtime_id)
+            compatibility_catalog.register(
+                CapabilityDescriptor(
+                    capability_id=runtime.runtime_id,
+                    operator_name="composed_runtime",
+                    content_hash=runtime.content_hash,
+                    backend="docker",
+                    backend_ref={"image_id": runtime.image_id},
+                    base_image_id=runtime.base_image_id,
+                    created_at=runtime.created_at,
+                    dependency_lock_hash=runtime.dependency_lock_hash,
+                    model_refs=tuple(item.to_dict() for item in runtime.model_refs),
+                )
+            )
+        self.allowed_runtimes = frozenset(allowed_runtimes)
+        self.delegate = ExecutionBroker(
+            workspace_root,
+            worker,
+            allowed_capabilities=allowed_runtimes,
+            tenant_id=tenant_id,
+            backend_factory=backend_factory,
+        )
+
+    def start(self, request: RuntimeStartRunRequest) -> dict[str, Any]:
+        if request.runtime_id not in self.allowed_runtimes:
+            raise PlanFlowError("RUNTIME_NOT_ALLOWED", f"Runtime is not in the broker allowlist: {request.runtime_id}")
+        return self._runtime_projection(
+            self.delegate.start(
+                StartRunRequest(
+                    task_id=request.task_id,
+                    plan_version=request.plan_version,
+                    capability_id=request.runtime_id,
+                    profile=request.profile,
+                )
+            )
+        )
+
+    def get(self, run_id: str) -> dict[str, Any]:
+        return self._runtime_projection(self.delegate.get(run_id))
+
+    def cancel(self, run_id: str) -> dict[str, Any]:
+        return self._runtime_projection(self.delegate.cancel(run_id))
+
+    def cleanup(self, run_id: str) -> dict[str, Any]:
+        return self._runtime_projection(self.delegate.cleanup(run_id))
+
+    def reconcile(self) -> tuple[str, ...]:
+        return self.delegate.reconcile()
+
+    @staticmethod
+    def _runtime_projection(payload: dict[str, Any]) -> dict[str, Any]:
+        result = dict(payload)
+        result["runtime_id"] = result.pop("capability_id")
+        return result
+
+
+def create_runtime_broker_app(broker: RuntimeExecutionBroker) -> FastAPI:
+    broker.reconcile()
+    app = FastAPI(title="Data-Juicer Local Runtime Broker", docs_url=None, redoc_url=None)
+
+    @app.exception_handler(PlanFlowError)
+    async def plan_flow_error(_request: Request, error: PlanFlowError):
+        status = 404 if error.code in {"RUN_NOT_FOUND", "TASK_NOT_FOUND", "RUNTIME_MISSING"} else 409
+        return JSONResponse(status_code=status, content=error.to_dict())
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(_request: Request, error: RequestValidationError):
+        details = [
+            {"path": ".".join(str(item) for item in issue["loc"]), "type": issue["type"]}
+            for issue in error.errors()
+        ]
+        failure = PlanFlowError("INVALID_REQUEST", "Request fields do not match the runtime broker interface", details=details)
+        return JSONResponse(status_code=422, content=failure.to_dict())
+
+    @app.post("/v1/runs", status_code=201)
+    def start_run(request: RuntimeStartRunRequest):
+        return broker.start(request)
+
+    @app.get("/v1/runs/{run_id}")
+    def get_run(run_id: str):
+        return broker.get(run_id)
+
+    @app.post("/v1/runs/{run_id}:cancel")
+    def cancel_run(run_id: str):
+        return broker.cancel(run_id)
+
+    @app.post("/v1/runs/{run_id}:cleanup")
+    def cleanup_run(run_id: str):
+        return broker.cleanup(run_id)
+
+    return app
+
+
 def serve_broker(broker: ExecutionBroker, *, host: str = "127.0.0.1", port: int = 8765) -> None:
     try:
         address = ip_address(host)
@@ -363,18 +486,38 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the loopback Data-Juicer execution broker")
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--worker-root", required=True)
-    parser.add_argument("--allow-capability", action="append", required=True)
+    parser.add_argument("--allow-capability", action="append")
+    parser.add_argument("--allow-runtime", action="append")
     parser.add_argument("--tenant-id", default="local-test")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args(argv)
-    broker = ExecutionBroker(
-        args.workspace,
-        args.worker_root,
-        allowed_capabilities=tuple(args.allow_capability),
-        tenant_id=args.tenant_id,
-    )
-    serve_broker(broker, host=args.host, port=args.port)
+    if bool(args.allow_capability) == bool(args.allow_runtime):
+        parser.error("specify exactly one of --allow-runtime or --allow-capability")
+    if args.allow_runtime:
+        broker = RuntimeExecutionBroker(
+            args.workspace,
+            args.worker_root,
+            allowed_runtimes=tuple(args.allow_runtime),
+            tenant_id=args.tenant_id,
+        )
+        try:
+            address = ip_address(args.host)
+        except ValueError as error:
+            raise PlanFlowError("BROKER_LOOPBACK_REQUIRED", "Broker host must be a numeric loopback address") from error
+        if not address.is_loopback:
+            raise PlanFlowError("BROKER_LOOPBACK_REQUIRED", "Broker may only listen on a loopback address")
+        import uvicorn
+
+        uvicorn.run(create_runtime_broker_app(broker), host=args.host, port=args.port, access_log=False)
+    else:
+        broker = ExecutionBroker(
+            args.workspace,
+            args.worker_root,
+            allowed_capabilities=tuple(args.allow_capability),
+            tenant_id=args.tenant_id,
+        )
+        serve_broker(broker, host=args.host, port=args.port)
     return 0
 
 

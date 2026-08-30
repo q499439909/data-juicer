@@ -104,3 +104,28 @@ def test_resolver_rejects_dependency_version_conflicts_before_build(tmp_path):
             profile_family="cpu",
         )
     assert conflict.value.code == "RUNTIME_DEPENDENCY_CONFLICT"
+
+
+def test_resolver_reports_corrupt_runtime_cache_as_stable_failure(tmp_path):
+    artifact, capability = _publish(tmp_path, "op-first-v1", "first_mapper", "first@1", "1")
+    resolver = RuntimeResolver(
+        tmp_path,
+        base_image_id="sha256:" + "a" * 64,
+        data_juicer_identity="git:test@1",
+        image_builder=lambda _: "sha256:" + "f" * 64,
+    )
+    resolver.resolve(
+        capability_ids=(capability.capability_id,),
+        operator_names=("first_mapper",),
+        profile_family="cpu",
+    )
+    index = next((tmp_path / "runtime-catalog" / "composition-index").glob("*.json"))
+    index.write_text("{broken", encoding="utf-8")
+
+    with pytest.raises(PlanFlowError) as corrupt:
+        resolver.resolve(
+            capability_ids=(capability.capability_id,),
+            operator_names=("first_mapper",),
+            profile_family="cpu",
+        )
+    assert corrupt.value.code == "RUNTIME_CACHE_CORRUPT"
