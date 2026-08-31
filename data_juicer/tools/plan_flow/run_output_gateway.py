@@ -268,6 +268,9 @@ class RunOutputGateway:
             relative = str(item.get("asset_path", "")).replace("\\", "/")
             semantics[relative] = {
                 "itemId": str(item.get("item_id") or _asset_id(relative)),
+                "sampleId": str(item.get("sample_id") or "")[:200] or None,
+                "variant": str(item.get("variant") or "")[:100] or None,
+                "variantLabel": str(item.get("variant_label") or "")[:100] or None,
                 "name": str(item.get("display_name") or inventory[relative]["name"]),
                 "mediaType": str(item.get("media_type") or inventory[relative]["mediaType"]),
                 "labels": [str(label)[:100] for label in item.get("labels", []) if str(label).strip()][:50],
@@ -277,6 +280,9 @@ class RunOutputGateway:
             relative = str(document.get("asset_path", "")).replace("\\", "/")
             semantics.setdefault(relative, {
                 "itemId": _asset_id(relative),
+                "sampleId": None,
+                "variant": None,
+                "variantLabel": None,
                 "name": inventory[relative]["name"],
                 "mediaType": "application/x-ndjson" if document.get("kind") == "jsonl" else inventory[relative]["mediaType"],
                 "labels": [],
@@ -286,6 +292,9 @@ class RunOutputGateway:
         for relative, item in inventory.items():
             semantic = semantics.get(relative, {
                 "itemId": item["assetId"],
+                "sampleId": None,
+                "variant": None,
+                "variantLabel": None,
                 "name": item["name"],
                 "mediaType": item["mediaType"],
                 "labels": [],
@@ -294,6 +303,9 @@ class RunOutputGateway:
             result.append({
                 "assetId": item["assetId"],
                 "itemId": semantic["itemId"],
+                "sampleId": semantic["sampleId"],
+                "variant": semantic["variant"],
+                "variantLabel": semantic["variantLabel"],
                 "name": semantic["name"],
                 "mediaType": semantic["mediaType"],
                 "size": item["size"],

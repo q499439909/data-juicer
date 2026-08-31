@@ -72,6 +72,9 @@ def test_inspects_verified_outputs_and_applies_dataset_view_without_exposing_pat
             "summary": {"record_count": 1, "labels": {"保留": 1}, "metrics": {"quality_score": {"mean": 0.9}}},
             "items": [{
                 "item_id": "item_1",
+                "sample_id": "sample_1",
+                "variant": "overlay",
+                "variant_label": "叠加预览",
                 "asset_path": "images/a.png",
                 "display_name": "a.png",
                 "media_type": "image/png",
@@ -94,6 +97,9 @@ def test_inspects_verified_outputs_and_applies_dataset_view_without_exposing_pat
     assert {item["name"] for item in result["assets"]} == {"a.png", "result.jsonl"}
     assert all("path" not in item and "output" not in item for item in result["assets"])
     image = next(item for item in result["assets"] if item["name"] == "a.png")
+    assert image["sampleId"] == "sample_1"
+    assert image["variant"] == "overlay"
+    assert image["variantLabel"] == "叠加预览"
     opened = gateway.open_asset(workspace, task_id, version, run_id, image["assetId"])
     assert opened.path.read_bytes() == b"png"
     assert opened.media_type == "image/png"
