@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import hmac
+import os
 from typing import Annotated, Any
 
 from pydantic import Field
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import FileResponse, JSONResponse
 
 from data_juicer.utils.lazy_loader import LazyLoader
 
 from .common import PlanFlowError
+from .run_output_gateway import RunOutputGateway
 from .service import PlanFlowService
 
 fastmcp = LazyLoader("mcp.server.fastmcp", "mcp[cli]")
 service = PlanFlowService()
+run_outputs = RunOutputGateway()
 
 WorkspaceRoot = Annotated[
     str,
@@ -32,6 +36,21 @@ def _call(method, *args, **kwargs) -> dict[str, Any]:
         return method(*args, **kwargs)
     except PlanFlowError as exc:
         return exc.to_dict()
+
+
+def _internal_authorized(request: Request) -> bool:
+    expected = os.environ.get("DSH_DJ_INTERNAL_TOKEN", "")
+    supplied = request.headers.get("x-dsh-internal-token", "")
+    return bool(expected and supplied and hmac.compare_digest(expected, supplied))
+
+
+def _result_arguments(request: Request) -> tuple[str, str, str, str]:
+    return (
+        request.query_params.get("workspace_root", ""),
+        request.query_params.get("task_id", ""),
+        request.query_params.get("plan_version", ""),
+        request.query_params.get("result_ref", ""),
+    )
 
 
 def inspect_input(workspace_root: WorkspaceRoot, input: dict[str, Any], sample_size: int = 20) -> dict[str, Any]:
@@ -197,5 +216,57 @@ def create_mcp_server(port: str = "8000"):
             request.query_params.get("run_id") or None,
         )
         return JSONResponse(payload, status_code=200 if payload.get("ok") else 404, headers={"Cache-Control": "no-store"})
+
+    @mcp.custom_route("/internal/run-output", methods=["GET", "DELETE"], include_in_schema=False)
+    async def internal_run_output(request: Request) -> JSONResponse:
+        if not _internal_authorized(request):
+            return JSONResponse({"ok": False, "error": {"code": "INTERNAL_UNAUTHORIZED", "message": "Unauthorized"}}, status_code=403)
+        args = _result_arguments(request)
+        if request.method == "DELETE":
+            payload = _call(run_outputs.delete_outputs, *args, request.headers.get("if-match", ""))
+        else:
+            payload = _call(run_outputs.inspect_run, *args)
+            if payload.get("eligible") is not None:
+                payload = {"ok": True, **payload}
+        return JSONResponse(
+            payload,
+            status_code=200 if payload.get("ok") or payload.get("deleted") else 404,
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @mcp.custom_route("/internal/run-asset", methods=["GET"], include_in_schema=False)
+    async def internal_run_asset(request: Request):
+        if not _internal_authorized(request):
+            return JSONResponse({"ok": False, "error": {"code": "INTERNAL_UNAUTHORIZED", "message": "Unauthorized"}}, status_code=403)
+        try:
+            opened = run_outputs.open_asset(*_result_arguments(request), request.query_params.get("asset_id", ""))
+        except PlanFlowError as exc:
+            return JSONResponse(exc.to_dict(), status_code=404, headers={"Cache-Control": "no-store"})
+        return FileResponse(
+            opened.path,
+            media_type=opened.media_type,
+            filename=opened.display_name if request.query_params.get("download") == "1" else None,
+            headers={
+                "Cache-Control": "private, no-store",
+                "X-Content-Type-Options": "nosniff",
+                "ETag": opened.sha256,
+            },
+        )
+
+    @mcp.custom_route("/internal/run-archive", methods=["GET"], include_in_schema=False)
+    async def internal_run_archive(request: Request):
+        if not _internal_authorized(request):
+            return JSONResponse({"ok": False, "error": {"code": "INTERNAL_UNAUTHORIZED", "message": "Unauthorized"}}, status_code=403)
+        try:
+            selected = None if request.query_params.get("all") == "1" else request.query_params.getlist("asset_id")
+            archive = run_outputs.create_archive(*_result_arguments(request), selected)
+        except PlanFlowError as exc:
+            return JSONResponse(exc.to_dict(), status_code=404, headers={"Cache-Control": "no-store"})
+        return FileResponse(
+            archive.path,
+            media_type="application/zip",
+            filename=archive.display_name,
+            headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "ETag": archive.sha256},
+        )
 
     return mcp

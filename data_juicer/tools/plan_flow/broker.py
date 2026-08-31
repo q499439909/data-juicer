@@ -305,6 +305,7 @@ class ExecutionBroker:
     def _project(record: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
         payload = {
             "run_id": record["run_id"],
+            "result_ref": record["internal_run_id"],
             "task_id": record["task_id"],
             "plan_version": record["plan_version"],
             "capability_id": record["capability_id"],

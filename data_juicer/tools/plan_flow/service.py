@@ -212,7 +212,9 @@ class PlanFlowService:
             raise PlanFlowError("APPROVAL_REQUIRED", "Approve this exact plan version before running it")
         if self.local_test_backend:
             runner = PlanRunner(workspace_root)
-            return {"ok": True, "workspace_root": str(runner.store.workspace), "run": runner.start(task_id, plan_version)}
+            run = runner.start(task_id, plan_version)
+            run["result_ref"] = run["run_id"]
+            return {"ok": True, "workspace_root": str(runner.store.workspace), "run": run}
         if self.runtime_resolver is None or self.broker_client is None:
             raise PlanFlowError("BROKER_REQUIRED", "Production run_plan requires Runtime Resolver and loopback Broker")
         plan = info["plan"]
@@ -237,7 +239,9 @@ class PlanFlowService:
     def get_run(self, workspace_root: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
         if self.local_test_backend:
             runner = PlanRunner(workspace_root)
-            return {"ok": True, "workspace_root": str(runner.store.workspace), "run": runner.get(task_id, run_id)}
+            run = runner.get(task_id, run_id)
+            run["result_ref"] = run["run_id"]
+            return {"ok": True, "workspace_root": str(runner.store.workspace), "run": run}
         if self.broker_client is None or run_id is None:
             raise PlanFlowError("BROKER_REQUIRED", "A broker and public run_id are required")
         store = PlanStore(workspace_root)
