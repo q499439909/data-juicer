@@ -143,6 +143,7 @@ class PlanFlowService:
         plan: dict[str, Any],
         task_id: str | None = None,
         base_plan_version: str | None = None,
+        view_spec: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         store = PlanStore(workspace_root)
         if task_id is None:
@@ -167,13 +168,16 @@ class PlanFlowService:
             validation=validation,
             artifact_paths=artifacts,
             base_plan_version=base_plan_version,
+            view_spec=view_spec,
         )
+        stored = store.get_plan(task_id, saved["plan_version"])
         return {
             "ok": True,
             "workspace_root": str(store.workspace),
             **saved,
             "validation": validation,
-            "plan": store.get_plan(task_id, saved["plan_version"])["plan"],
+            "plan": stored["plan"],
+            "view": stored["view"],
         }
 
     def get_plan(

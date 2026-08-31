@@ -488,6 +488,13 @@ def build_base_parser() -> ArgumentParser:
         default=True,
         help="Enable event logging for job tracking and resumption",
     )
+    parser.add_argument(
+        "--use_dag",
+        type=bool,
+        default=None,
+        help="Enable DAG planning and per-operation execution telemetry. "
+        "Defaults to enabled for distributed executors and disabled for standalone execution.",
+    )
     # Logging configuration
     parser.add_argument(
         "--max_log_size_mb",

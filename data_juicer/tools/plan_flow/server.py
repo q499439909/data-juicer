@@ -86,9 +86,10 @@ def prepare_plan(
     plan: dict[str, Any],
     task_id: str | None = None,
     base_plan_version: str | None = None,
+    view_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Validate and save a new immutable plan_vNNN. Invalid drafts are saved for audit but cannot be approved."""
-    return _call(service.prepare_plan, workspace_root, plan, task_id, base_plan_version)
+    return _call(service.prepare_plan, workspace_root, plan, task_id, base_plan_version, view_spec)
 
 
 def get_plan(
@@ -177,5 +178,24 @@ def create_mcp_server(port: str = "8000"):
             status_code=200 if payload.get("ok") else 404,
             headers={"Cache-Control": "no-store"},
         )
+
+    @mcp.custom_route("/plan-view", methods=["GET"], include_in_schema=False)
+    async def get_plan_view(request: Request) -> JSONResponse:
+        payload = get_plan(
+            request.query_params.get("workspace_root", ""),
+            request.query_params.get("task_id", ""),
+            request.query_params.get("plan_version") or None,
+            request.query_params.get("include_versions") == "true",
+        )
+        return JSONResponse(payload, status_code=200 if payload.get("ok") else 404, headers={"Cache-Control": "no-store"})
+
+    @mcp.custom_route("/run-steps", methods=["GET"], include_in_schema=False)
+    async def get_run_steps(request: Request) -> JSONResponse:
+        payload = get_run(
+            request.query_params.get("workspace_root", ""),
+            request.query_params.get("task_id", ""),
+            request.query_params.get("run_id") or None,
+        )
+        return JSONResponse(payload, status_code=200 if payload.get("ok") else 404, headers={"Cache-Control": "no-store"})
 
     return mcp

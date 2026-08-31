@@ -118,6 +118,9 @@ class PlanRunner:
             result["dataset"] = {"configs": [{"type": "local", "path": result.pop("dataset_path")}]}
         result["work_dir"] = str(run_path / "work")
         result["temp_dir"] = str(run_path / "tmp")
+        # Plan Explorer requires real per-operation telemetry. This only changes
+        # the materialized runtime recipe, never the immutable approved plan.
+        result["use_dag"] = True
         return result
 
     def get(self, task_id: str, run_id: str | None = None) -> dict[str, Any]:
@@ -163,6 +166,12 @@ class PlanRunner:
         report = run_path / "report.md"
         if report.is_file():
             state["report_path"] = str(report)
+        from .run_status import read_run_steps
+
+        plan = self.store.get_plan(task_id, state["plan_version"])["plan"]
+        telemetry = read_run_steps(run_path, plan.get("recipe", {}).get("process", []), state["status"])
+        state["steps"] = telemetry.pop("steps")
+        state["step_telemetry"] = telemetry
         return state
 
     def cancel(self, task_id: str, run_id: str) -> dict[str, Any]:

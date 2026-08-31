@@ -85,6 +85,7 @@ class PlanStore:
         validation: dict[str, Any],
         artifact_paths: list[str],
         base_plan_version: str | None,
+        view_spec: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         task_path = self.task_path(task_id)
         with FileLock(task_path / ".lock"):
@@ -113,6 +114,10 @@ class PlanStore:
 
             content_hash = self._bundle_hash(saved_plan, version_path, copied)
             write_yaml_atomic(version_path / "plan.yaml", saved_plan)
+            from .presentation import build_plan_view
+
+            plan_view, presentation_warnings = build_plan_view(saved_plan, content_hash, view_spec)
+            write_json_atomic(version_path / "plan-view.json", plan_view)
             write_json_atomic(version_path / "validation.json", validation)
             write_text_atomic(version_path / "content-hash.txt", content_hash + "\n")
 
@@ -128,6 +133,7 @@ class PlanStore:
             "content_hash": content_hash,
             "changes": diff,
             "valid": bool(validation.get("ok")),
+            "presentation_warnings": presentation_warnings,
         }
 
     def _copy_artifacts(self, artifact_paths: list[str], destination: Path) -> list[dict[str, Any]]:
@@ -205,11 +211,32 @@ class PlanStore:
     def get_plan(self, task_id: str, version: str | None = None) -> dict[str, Any]:
         path = self.plan_path(task_id, version)
         approval = read_json(path / "approval.json") if (path / "approval.json").is_file() else None
+        plan = read_yaml(path / "plan.yaml")
+        content_hash = (path / "content-hash.txt").read_text(encoding="utf-8").strip()
+        presentation_warnings: list[str] = []
+        if (path / "plan-view.json").is_file():
+            plan_view = read_json(path / "plan-view.json")
+            if (
+                plan_view.get("plan_id") != plan.get("plan_id")
+                or plan_view.get("plan_version") != plan.get("plan_version")
+                or plan_view.get("recipe_content_hash") != content_hash
+            ):
+                from .presentation import build_plan_view
+
+                plan_view, _ = build_plan_view(plan, content_hash)
+                presentation_warnings.append("Stored plan-view identity does not match this immutable plan")
+        else:
+            from .presentation import build_plan_view
+
+            plan_view, _ = build_plan_view(plan, content_hash)
+            presentation_warnings.append("Stored plan-view is missing; generated the default linear view")
         return {
-            "plan": read_yaml(path / "plan.yaml"),
+            "plan": plan,
+            "view": plan_view,
+            "presentation_warnings": presentation_warnings,
             "validation": read_json(path / "validation.json"),
             "changes": read_json(path / "diff.json").get("changes", []),
-            "content_hash": (path / "content-hash.txt").read_text(encoding="utf-8").strip(),
+            "content_hash": content_hash,
             "approval": approval,
             "status": "approved" if approval else "proposed",
         }

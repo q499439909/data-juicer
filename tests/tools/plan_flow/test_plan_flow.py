@@ -375,6 +375,14 @@ def test_prepare_versions_are_immutable_and_diffed(tmp_path):
     assert any(change["path"].endswith("min_len") for change in second["changes"])
 
 
+def test_materialized_recipe_enables_real_operation_events(tmp_path):
+    from data_juicer.tools.plan_flow.runner import PlanRunner
+
+    recipe = PlanRunner._materialize({"process": []}, tmp_path / "run", tmp_path / "output")
+
+    assert recipe["use_dag"] is True
+
+
 def test_invalid_plan_cannot_be_approved(tmp_path):
     dataset = tmp_path / "input.jsonl"
     dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
@@ -502,6 +510,8 @@ def test_approved_plan_runs_and_writes_report(tmp_path):
             break
         time.sleep(0.2)
     assert state["status"] == "succeeded", state
+    assert [step["status"] for step in state["steps"]] == ["succeeded"]
+    assert state["step_telemetry"]["mapping_complete"] is True
     assert Path(state["report_path"]).is_file()
     assert Path(state["recipe_output"]).is_file()
     backend = LocalProcessBackend(tmp_path)

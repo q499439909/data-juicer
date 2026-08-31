@@ -317,6 +317,9 @@ class ExecutionBroker:
         for key in ("updated_at", "error_code", "error"):
             if state.get(key) is not None:
                 payload[key] = state[key]
+        if isinstance(state.get("steps"), list):
+            payload["steps"] = state["steps"]
+            payload["step_telemetry"] = state.get("step_telemetry", {})
         return payload
 
 
