@@ -10,7 +10,8 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from ..common import FileLock, PlanFlowError, now_iso, read_json, read_yaml, write_json_atomic, write_text_atomic
+from ..common import FileLock, PlanFlowError, now_iso, read_json, read_yaml, sha256_file, write_json_atomic, write_text_atomic
+from ..result_manifest import write_result_manifest
 from ..store import PlanStore
 
 
@@ -97,13 +98,23 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
             ]
         )
         write_text_atomic(run_path / "report.md", report)
+        finished_at = now_iso()
+        manifest = write_result_manifest(
+            state["output_dir"],
+            run_id=run_id,
+            started_at=state["created_at"],
+            finished_at=finished_at,
+            metadata={"recipe_sha256": sha256_file(run_path / "materialized-recipe.yaml")},
+        )
         state.update(
             {
                 "status": "succeeded",
-                "updated_at": now_iso(),
+                "updated_at": finished_at,
                 "recipe_output": str(recipe["export_path"]),
                 "postprocess_results": post_results,
                 "report_path": str(run_path / "report.md"),
+                "result_manifest_path": str(Path(state["output_dir"]) / "result-manifest.json"),
+                "result_output_count": manifest["output_count"],
             }
         )
     except Exception as exc:

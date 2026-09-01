@@ -14,6 +14,7 @@ from data_juicer.tools.plan_flow.discovery import (
     search_capabilities,
 )
 from data_juicer.tools.plan_flow.execution import LocalProcessBackend, RunHandle
+from data_juicer.tools.plan_flow.run_output_gateway import RunOutputGateway
 from data_juicer.tools.plan_flow.service import PlanFlowService
 from data_juicer.tools.plan_flow.validation import normalize_and_validate
 
@@ -531,6 +532,11 @@ def test_approved_plan_runs_and_writes_report(tmp_path):
     assert state["step_telemetry"]["mapping_complete"] is True
     assert Path(state["report_path"]).is_file()
     assert Path(state["recipe_output"]).is_file()
+    assert Path(state["result_manifest_path"]).is_file()
+    inspected = RunOutputGateway().inspect_run(tmp_path, prepared["task_id"], prepared["plan_version"], started["run_id"])
+    assert inspected["eligible"] is True
+    assert inspected["status"] == "partial"
+    assert inspected["fileCount"] >= 1
     backend = LocalProcessBackend(tmp_path)
     handle = RunHandle.from_dict(started["handle"])
     result = backend.collect(handle)
