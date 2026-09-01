@@ -17,7 +17,17 @@ from .run_output_gateway import RunOutputGateway
 from .service import PlanFlowService
 
 fastmcp = LazyLoader("mcp.server.fastmcp", "mcp[cli]")
-service = PlanFlowService()
+
+
+def _service_from_environment() -> PlanFlowService:
+    mode = os.environ.get("DJ_PLAN_FLOW_EXECUTION_MODE", "broker")
+    try:
+        return PlanFlowService(execution_mode=mode)
+    except ValueError as exc:
+        raise RuntimeError("DJ_PLAN_FLOW_EXECUTION_MODE must be either 'broker' or 'native'") from exc
+
+
+service = _service_from_environment()
 run_outputs = RunOutputGateway()
 
 WorkspaceRoot = Annotated[

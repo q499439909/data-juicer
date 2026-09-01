@@ -455,6 +455,23 @@ def test_production_service_refuses_to_fall_back_to_shared_local_process(tmp_pat
     assert missing.value.code == "BROKER_REQUIRED"
 
 
+def test_native_execution_mode_must_be_selected_explicitly():
+    service = PlanFlowService.native()
+
+    assert service.execution_mode == "native"
+
+    with pytest.raises(ValueError, match="Unsupported plan-flow execution mode"):
+        PlanFlowService(execution_mode="anything")
+
+
+def test_mcp_service_selects_native_execution_from_environment(monkeypatch):
+    from data_juicer.tools.plan_flow.server import _service_from_environment
+
+    monkeypatch.setenv("DJ_PLAN_FLOW_EXECUTION_MODE", "native")
+
+    assert _service_from_environment().execution_mode == "native"
+
+
 def test_production_service_resolves_runtime_then_submits_public_broker_run(tmp_path):
     dataset = tmp_path / "input.jsonl"
     dataset.write_text('{"text":"hello"}\n', encoding="utf-8")

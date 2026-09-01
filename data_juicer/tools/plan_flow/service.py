@@ -52,6 +52,8 @@ class BrokerHttpClient:
 class PlanFlowService:
     """Coordinates validation, immutable persistence, approval, and runs."""
 
+    _EXECUTION_MODES = frozenset({"broker", "native"})
+
     def __init__(
         self,
         *,
@@ -59,18 +61,27 @@ class PlanFlowService:
         broker_client=None,
         capability_lifecycle=None,
         worker_root=None,
-        local_test_backend: bool = False,
+        execution_mode: str = "broker",
     ):
+        normalized_mode = str(execution_mode).strip().casefold()
+        if normalized_mode not in self._EXECUTION_MODES:
+            choices = ", ".join(sorted(self._EXECUTION_MODES))
+            raise ValueError(f"Unsupported plan-flow execution mode {execution_mode!r}; expected one of: {choices}")
         self.runtime_resolver = runtime_resolver
         self.broker_client = broker_client
         self.capability_lifecycle = capability_lifecycle
         self.capability_catalog = CapabilityCatalog(worker_root) if worker_root is not None else None
-        self.local_test_backend = local_test_backend
+        self.execution_mode = normalized_mode
+
+    @classmethod
+    def native(cls, **kwargs) -> "PlanFlowService":
+        """Use the approved-plan runner with its constrained local-process adapter."""
+        return cls(execution_mode="native", **kwargs)
 
     @classmethod
     def local_for_tests(cls) -> "PlanFlowService":
-        """Explicit legacy seam; production MCP never selects it implicitly."""
-        return cls(local_test_backend=True)
+        """Compatibility factory for tests that exercise the native adapter."""
+        return cls.native()
 
     def inspect_input(self, workspace_root: str, input: dict[str, Any], sample_size: int = 20) -> dict[str, Any]:
         return inspect_local_input(workspace_root, input, sample_size)
@@ -210,7 +221,7 @@ class PlanFlowService:
         info = store.get_plan(task_id, plan_version)
         if not info.get("approval") or info["approval"].get("content_hash") != content_hash:
             raise PlanFlowError("APPROVAL_REQUIRED", "Approve this exact plan version before running it")
-        if self.local_test_backend:
+        if self.execution_mode == "native":
             runner = PlanRunner(workspace_root)
             run = runner.start(task_id, plan_version)
             run["result_ref"] = run["run_id"]
@@ -237,7 +248,7 @@ class PlanFlowService:
         return {"ok": True, "workspace_root": str(store.workspace), "run": run}
 
     def get_run(self, workspace_root: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
-        if self.local_test_backend:
+        if self.execution_mode == "native":
             runner = PlanRunner(workspace_root)
             run = runner.get(task_id, run_id)
             run["result_ref"] = run["run_id"]
@@ -251,7 +262,7 @@ class PlanFlowService:
         return {"ok": True, "workspace_root": str(store.workspace), "run": run}
 
     def cancel_run(self, workspace_root: str, task_id: str, run_id: str) -> dict[str, Any]:
-        if self.local_test_backend:
+        if self.execution_mode == "native":
             runner = PlanRunner(workspace_root)
             return {"ok": True, "workspace_root": str(runner.store.workspace), "run": runner.cancel(task_id, run_id)}
         if self.broker_client is None:
