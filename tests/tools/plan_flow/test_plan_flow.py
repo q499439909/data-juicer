@@ -298,17 +298,19 @@ def test_exact_operator_name_bypasses_modality_filter():
 
     assert result["results"][0]["operator_names"] == ["image_tagging_vlm_mapper"]
     assert result["operators"][0]["name"] == "image_tagging_vlm_mapper"
-    assert result["operators"][0]["modality_compatible"] is True
+    assert result["operators"][0]["description"]
+    assert result["operators"][0]["match_score"] == 1.0
     assert "parameters" not in result["operators"][0]
-    assert "signature" in result["operators"][0]
+    assert "signature" not in result["operators"][0]
+    assert "parameter_descriptions" not in result["operators"][0]
 
 
 def test_image_search_includes_multimodal_operators():
     result = search_capabilities(["tag images with a vision language model"], modality="image", top_k=30)
 
     names = result["results"][0]["operator_names"]
-    assert result["top_k"] == 5
-    assert len(names) <= 5
+    assert result["top_k"] == 3
+    assert len(names) <= 3
     assert "image_tagging_vlm_mapper" in names
 
 
@@ -317,6 +319,44 @@ def test_search_capabilities_defaults_to_three_compact_candidates():
 
     assert result["top_k"] == 3
     assert len(result["results"][0]["operator_names"]) == 3
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    ["image aesthetic quality scoring", "image aesthetics quality scoring"],
+)
+def test_search_normalizes_english_inflections(requirement):
+    result = search_capabilities([requirement], modality="image", top_k=5)
+
+    assert result["results"][0]["operator_names"][0] == "image_aesthetics_filter"
+
+
+def test_service_separates_discovery_metadata_from_executable_schema():
+    service = PlanFlowService()
+    result = service.search_capabilities(["image aesthetic quality scoring"], modality="image", top_k=5)
+
+    assert result["top_k"] == 3
+    candidate = result["operators"][0]
+    assert set(candidate) == {
+        "candidate_id",
+        "name",
+        "type",
+        "tags",
+        "description",
+        "match_score",
+        "matched_requirements",
+        "provider",
+        "status",
+        "version",
+    }
+    assert candidate["name"] == "image_aesthetics_filter"
+    assert 0.0 <= candidate["match_score"] <= 1.0
+
+    schema = service.get_capability_schemas([candidate["candidate_id"]])["operators"][0]
+    assert "parameters" in schema
+    assert "description" not in schema
+    assert "tags" not in schema
+    assert "match_score" not in schema
 
 
 def test_search_deduplicates_compact_definitions_across_requirements():
@@ -357,6 +397,9 @@ def test_full_capability_schemas_are_loaded_by_exact_name():
 
     assert [operator["name"] for operator in result["operators"]] == ["text_length_filter"]
     assert "parameters" in result["operators"][0]
+    assert "description" not in result["operators"][0]
+    assert "tags" not in result["operators"][0]
+    assert "signature" not in result["operators"][0]
     assert result["missing"] == ["missing_operator"]
     assert result["ok"] is False
 
@@ -431,17 +474,18 @@ def test_mcp_exposes_small_plan_first_surface():
         "search_capabilities",
         "get_capability_schemas",
         "resolve_capabilities",
-        "prepare_capability",
-        "get_capability",
-        "approve_capability",
         "prepare_plan",
         "get_plan",
-        "preview_plan",
         "approve_plan",
         "run_plan",
         "get_run",
         "cancel_run",
+        "get_custom_operator_authoring_spec",
+        "develop_custom_operator",
+        "get_custom_operator_job",
+        "validate_custom_operator",
     }
+    assert len(tools) == 14
 
 
 def test_production_service_refuses_to_fall_back_to_shared_local_process(tmp_path):

@@ -262,11 +262,23 @@ class OPSearcher:
 
     @staticmethod
     def _tokenize(text: str) -> List[str]:
-        """Simple whitespace + underscore tokenizer for BM25 indexing."""
+        """Tokenize BM25 text and add conservative English inflection aliases."""
         text = text.lower()
         # Split on whitespace and underscores, keep only alphanumeric tokens
-        tokens = re.split(r"[\s_\-/,;:.()\[\]{}]+", text)
-        return [token for token in tokens if token and len(token) > 1]
+        raw_tokens = re.split(r"[\s_\-/,;:.()\[\]{}]+", text)
+        tokens = []
+        for token in raw_tokens:
+            if not token or len(token) <= 1:
+                continue
+            tokens.append(token)
+            # Keep the original token for exact lexical matches and add a
+            # singular alias so queries such as "aesthetic" also match the
+            # catalog's "aesthetics" wording. Avoid common non-plural endings.
+            if len(token) > 3 and token.endswith("s") and not token.endswith(("ss", "us", "is")):
+                singular = token[:-1]
+                if len(singular) > 1:
+                    tokens.append(singular)
+        return tokens
 
     def _filter_by_tags_and_type(
         self,
@@ -433,7 +445,9 @@ class OPSearcher:
         for idx in ranked_indices[:top_k]:
             if scores[idx] <= score_threshold:
                 break
-            results.append(self._bm25_records[idx].to_dict())
+            result = self._bm25_records[idx].to_dict()
+            result["score"] = float(scores[idx])
+            results.append(result)
 
         return results
 

@@ -75,6 +75,8 @@ class LoadCustomOperatorsTest(DataJuicerTestCaseBase):
         for key in list(sys.modules.keys()):
             if key.startswith("_test_custom_op"):
                 del sys.modules[key]
+        while self.tmp_dir in sys.path:
+            sys.path.remove(self.tmp_dir)
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
         super().tearDown()
 
@@ -86,6 +88,7 @@ class LoadCustomOperatorsTest(DataJuicerTestCaseBase):
         load_custom_operators([op_file])
         self.assertIn("_test_custom_op_file", sys.modules)
         self.assertTrue(sys.modules["_test_custom_op_file"].LOADED)
+        self.assertIn(self.tmp_dir, sys.path)
 
     def test_load_package(self):
         pkg_dir = os.path.join(self.tmp_dir, "_test_custom_op_pkg")
@@ -95,6 +98,7 @@ class LoadCustomOperatorsTest(DataJuicerTestCaseBase):
 
         load_custom_operators([pkg_dir])
         self.assertIn("_test_custom_op_pkg", sys.modules)
+        self.assertIn(self.tmp_dir, sys.path)
 
     def test_load_package_missing_init_raises(self):
         pkg_dir = os.path.join(self.tmp_dir, "_test_custom_op_noinit")

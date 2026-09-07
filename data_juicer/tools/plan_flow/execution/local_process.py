@@ -31,6 +31,7 @@ class LocalProcessBackend:
     def __init__(self, workspace_root: str | Path):
         self.workspace = require_workspace(workspace_root)
         self._state_root = self.workspace / ".dj" / "execution" / self.name
+        self.python_executable = sys.executable
 
     def start(self, spec: RuntimeSpec) -> RunHandle:
         self._validate_spec_paths(spec)
@@ -55,7 +56,7 @@ class LocalProcessBackend:
         write_json_atomic(record_path, record)
 
         command = [
-            sys.executable,
+            self.python_executable,
             "-X",
             "utf8",
             "-m",

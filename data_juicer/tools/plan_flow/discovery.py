@@ -25,7 +25,7 @@ _SEARCH_MODALITIES = {"text", "image", "audio", "video", "multimodal"}
 _MEDIA_MODALITIES = {"image", "audio", "video"}
 _CATALOG_MODALITIES = ("text", "image", "audio", "video", "multimodal")
 _CATALOG_DEVICES = ("cpu", "gpu")
-_MAX_SEARCH_TOP_K = 5
+_MAX_SEARCH_TOP_K = 3
 
 
 @lru_cache(maxsize=1)
@@ -86,7 +86,7 @@ def _catalog_dimensions(record) -> tuple[list[str], list[str]]:
 
 
 def capability_schemas(operator_names: list[str]) -> dict[str, Any]:
-    """Return full schemas for already-discovered operators by exact name."""
+    """Return executable parameter contracts for discovered operators."""
     operators = []
     missing = []
     seen = set()
@@ -99,7 +99,7 @@ def capability_schemas(operator_names: list[str]) -> dict[str, Any]:
         if schema is None:
             missing.append(name)
         else:
-            operators.append(schema)
+            operators.append({key: schema[key] for key in ("name", "type", "parameters")})
     return {"ok": not missing, "operators": operators, "missing": missing}
 
 
@@ -176,24 +176,14 @@ def _search_tags(modality: str | None) -> list[str] | None:
     return [modality]
 
 
-def _compact_candidate(record, modality: str | None, executor_type: str) -> dict[str, Any]:
-    """Build the compact definition returned during capability discovery."""
-    tags = set(record.tags)
+def _compact_candidate(record, match_score: float) -> dict[str, Any]:
+    """Build the discovery-only definition used to select a shortlist."""
     return {
         "name": record.name,
         "type": record.type,
         "description": record.desc.strip(),
         "tags": list(record.tags),
-        "signature": str(record.sig),
-        "parameter_descriptions": record.param_desc.strip(),
-        "modality_compatible": modality not in _SEARCH_MODALITIES or modality in tags or (
-            modality in _MEDIA_MODALITIES and "multimodal" in tags
-        ),
-        "executor_compatible": not (
-            executor_type.startswith("ray")
-            and record.name.startswith("document_")
-            and "deduplicator" in record.name
-        ),
+        "match_score": round(float(match_score), 6),
     }
 
 
@@ -221,8 +211,9 @@ def search_capabilities(
             seen.add(query)
             if query in unique_operators:
                 unique_operators[query]["matched_requirements"].append(query)
+                unique_operators[query]["match_score"] = 1.0
             else:
-                compact = _compact_candidate(exact_record, modality, executor_type)
+                compact = _compact_candidate(exact_record, 1.0)
                 compact["matched_requirements"] = [query]
                 unique_operators[query] = compact
         matches = searcher.search_by_bm25(
@@ -232,6 +223,7 @@ def search_capabilities(
             tags=tags,
             match_all=False,
         )
+        highest_score = max((float(match.get("score", 0.0)) for match in matches), default=0.0)
         for match in matches:
             if match["name"] in seen:
                 continue
@@ -241,8 +233,13 @@ def search_capabilities(
                 seen.add(record.name)
                 if record.name in unique_operators:
                     unique_operators[record.name]["matched_requirements"].append(query)
+                    normalized_score = float(match.get("score", 0.0)) / highest_score if highest_score > 0 else 0.0
+                    unique_operators[record.name]["match_score"] = max(
+                        unique_operators[record.name]["match_score"], round(normalized_score, 6)
+                    )
                 else:
-                    compact = _compact_candidate(record, modality, executor_type)
+                    normalized_score = float(match.get("score", 0.0)) / highest_score if highest_score > 0 else 0.0
+                    compact = _compact_candidate(record, normalized_score)
                     compact["matched_requirements"] = [query]
                     unique_operators[record.name] = compact
             if len(candidate_names) >= limit:

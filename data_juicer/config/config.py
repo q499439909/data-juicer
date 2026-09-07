@@ -3,6 +3,7 @@ import copy
 import importlib.util
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -51,11 +52,20 @@ def _generate_module_name(abs_path):
 
 
 def load_custom_operators(paths):
-    """Dynamically load custom operator modules or packages in the specified path."""
+    """Dynamically load custom operator modules or packages in the specified path.
+
+    Keep each module's import root on ``sys.path`` after registration. Dataset
+    workers use multiprocessing spawn on platforms such as Windows and must be
+    able to import the registered operator class by its module name while
+    unpickling it.
+    """
     for path in paths:
         abs_path = os.path.abspath(path)
         if os.path.isfile(abs_path):
             module_name = _generate_module_name(abs_path)
+            module_root = os.path.dirname(abs_path)
+            if module_root not in sys.path:
+                sys.path.insert(0, module_root)
             if module_name in sys.modules:
                 existing_path = sys.modules[module_name].__file__
                 raise RuntimeError(
@@ -78,22 +88,20 @@ def load_custom_operators(paths):
                 raise ValueError(f"Package directory '{abs_path}' must contain __init__.py")
             package_name = os.path.basename(abs_path)
             parent_dir = os.path.dirname(abs_path)
+            if parent_dir not in sys.path:
+                sys.path.insert(0, parent_dir)
             if package_name in sys.modules:
                 existing_path = sys.modules[package_name].__path__[0]
                 raise RuntimeError(
                     f"Package '{package_name}' already loaded from '{existing_path}'. "
                     f"Conflict detected while loading '{abs_path}'."
                 )
-            original_sys_path = sys.path.copy()
             try:
-                sys.path.insert(0, parent_dir)
                 importlib.import_module(package_name)
                 # record the loading path of the package (for subsequent conflict detection)
                 sys.modules[package_name].__loaded_from__ = abs_path
             except Exception as e:
                 raise RuntimeError(f"Error loading package '{abs_path}': {e}")
-            finally:
-                sys.path = original_sys_path
         else:
             raise ValueError(f"Path '{abs_path}' is neither a file nor a directory")
 
@@ -988,7 +996,10 @@ def init_setup_from_cfg(cfg: Namespace, load_configs_only=False):
         # Ensure event_log_dir (logs/) exists - this is where logs are actually saved
         if not os.path.exists(cfg.event_log_dir):
             os.makedirs(cfg.event_log_dir, exist_ok=True)
-        logfile_name = f"export_{export_rel_path}_time_{timestamp}.txt"
+        # A relative export path is a label, not a nested log path (Windows in
+        # particular preserves backslashes in os.path.relpath).
+        export_log_label = re.sub(r'[<>:"/\\|?*]', "_", os.path.basename(export_rel_path.replace("\\", "/")))
+        logfile_name = f"export_{export_log_label}_time_{timestamp}.txt"
         setup_logger(
             save_dir=cfg.event_log_dir,
             filename=logfile_name,

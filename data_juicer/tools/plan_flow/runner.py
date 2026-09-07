@@ -59,6 +59,23 @@ class PlanRunner:
             output.mkdir(parents=True, exist_ok=False)
             (run_path / "logs").mkdir()
             recipe = self._materialize(plan_info["plan"]["recipe"], run_path, output)
+            if plan_info["plan"].get("operator_bindings"):
+                from .user_operator_store import UserOperatorStore, resolve_bindings
+                from .user_operator_runtime import runtime_python
+                selected = resolve_bindings(plan_info["plan"])
+                python = runtime_python(UserOperatorStore(), [req for item in selected.values() for req in item["_manifest"].get("dependencies", [])])
+                if isinstance(self.backend, LocalProcessBackend):
+                    self.backend.python_executable = python
+                recipe["custom_operator_paths"] = []
+                for name, item in selected.items():
+                    target = run_path / "custom_operators" / f"{name}.py"
+                    write_text_atomic(target, Path(item["_path"]).read_text(encoding="utf-8"))
+                    for filename, content in item["_manifest"].get("assets", {}).items():
+                        asset_path = target.parent / "assets" / filename
+                        if asset_path.exists() and asset_path.read_text(encoding="utf-8") != content:
+                            raise PlanFlowError("ASSET_NAME_CONFLICT", "Selected operators use different resources with the same filename")
+                        write_text_atomic(asset_path, content)
+                    recipe["custom_operator_paths"].append(str(target))
             write_yaml_atomic(run_path / "materialized-recipe.yaml", recipe)
             created_at = datetime.now(timezone.utc)
             deadline = created_at + timedelta(seconds=timeout_seconds) if timeout_seconds else None
@@ -117,6 +134,7 @@ class PlanRunner:
         if result.get("dataset_path"):
             result["dataset"] = {"configs": [{"type": "local", "path": result.pop("dataset_path")}]}
         result["work_dir"] = str(run_path / "work")
+        result["job_id"] = "work"
         result["temp_dir"] = str(run_path / "tmp")
         # Plan Explorer requires real per-operation telemetry. This only changes
         # the materialized runtime recipe, never the immutable approved plan.

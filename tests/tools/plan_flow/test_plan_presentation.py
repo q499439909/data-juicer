@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 
 from data_juicer.tools.plan_flow.presentation import build_plan_view
+from data_juicer.tools.plan_flow.runtime_preflight import RuntimePreflight
 from data_juicer.tools.plan_flow.service import PlanFlowService
 
 
@@ -106,3 +107,28 @@ def test_get_plan_rejects_a_stale_view_identity_and_returns_safe_fallback(tmp_pa
 
     assert loaded["view"]["recipe_content_hash"] == prepared["content_hash"]
     assert loaded["presentation_warnings"]
+
+
+def test_get_plan_includes_execution_preview_merged_from_preview_tool(tmp_path: Path):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
+    plan = {
+        "user_intent": "Clean text",
+        "modality": "text",
+        "recipe": {
+            "dataset_path": str(dataset),
+            "export_path": "result.jsonl",
+            "process": [{"text_length_filter": {"min_len": 2}}],
+        },
+    }
+    service = PlanFlowService(
+        runtime_preflight=RuntimePreflight(cuda_available=lambda: False, platform_name=lambda: "test-host")
+    )
+    prepared = service.prepare_plan(str(tmp_path), plan)
+
+    loaded = service.get_plan(str(tmp_path), prepared["task_id"])
+
+    assert loaded["execution_preview"] == prepared["execution_preview"]
+    assert loaded["execution_preview"]["dj_operators"] == ["text_length_filter"]
+    assert loaded["execution_preview"]["output_template"] == "${RUN_OUTPUT}/result.jsonl"
+    assert loaded["runtime_assessment"] == prepared["runtime_assessment"]

@@ -58,6 +58,23 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
         store.verify_bundle(task_id, plan_version)
         plan = read_yaml(plan_path / "plan.yaml")
         recipe = read_yaml(run_path / "materialized-recipe.yaml")
+        if plan.get("operator_bindings"):
+            from ..user_operator_store import UserOperatorStore, resolve_bindings
+            selected = resolve_bindings(plan, UserOperatorStore(user_id=plan["operator_owner"]))
+            expected_paths = [str(run_path / "custom_operators" / f"{name}.py") for name in selected]
+            if recipe.get("custom_operator_paths") != expected_paths:
+                raise PlanFlowError("OPERATOR_HASH_MISMATCH", "Materialized operator paths changed")
+            for name, item in selected.items():
+                if sha256_file(Path(item["_path"])) != sha256_file(run_path / "custom_operators" / f"{name}.py"):
+                    raise PlanFlowError("OPERATOR_HASH_MISMATCH", "Materialized operator source changed")
+                for filename, content in item["_manifest"].get("assets", {}).items():
+                    if (run_path / "custom_operators" / "assets" / filename).read_text(encoding="utf-8") != content:
+                        raise PlanFlowError("OPERATOR_HASH_MISMATCH", "Materialized operator asset changed")
+                import importlib.metadata
+                from ..user_operator_runtime import dependency_lock
+                for package, expected in dependency_lock(item["_manifest"].get("dependencies", [])).items():
+                    if importlib.metadata.version(package) != expected:
+                        raise PlanFlowError("OPERATOR_RUNTIME_BLOCKED", "Installed dependency differs from the validated lock")
         from data_juicer.config import init_configs
         from data_juicer.core.executor import ExecutorFactory
 

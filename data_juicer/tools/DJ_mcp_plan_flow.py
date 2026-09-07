@@ -8,7 +8,6 @@ from data_juicer.tools.plan_flow.server import (
     get_run,
     inspect_input,
     prepare_plan,
-    preview_plan,
     run_plan,
     search_capabilities,
 )
@@ -18,7 +17,6 @@ __all__ = [
     "search_capabilities",
     "prepare_plan",
     "get_plan",
-    "preview_plan",
     "approve_plan",
     "run_plan",
     "get_run",
