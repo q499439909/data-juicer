@@ -28,6 +28,7 @@ _MODEL_POLICY = {
         "none",
         "api_vlm",
         "remote_model",
+        "fixed_url_model",
         "local_model",
     ],
     "strategies": {
@@ -37,12 +38,19 @@ _MODEL_POLICY = {
             "model_refs, or assets; this strategy does not download model weights."
         ),
         "remote_model": (
-            "Declare every model as {model_id, revision} in proposal.model_refs, where revision is an immutable "
-            "40-64 character hexadecimal commit. Load that same model_id and revision in source."
+            "Declare every model as {parameter, backend, model_id, revision} in proposal.model_refs, where backend "
+            "defaults to huggingface and may also be modelscope. parameter is "
+            "the operator constructor parameter receiving the model path and revision is an immutable 40-64 "
+            "character hexadecimal commit. The native worker replaces that parameter with a verified local snapshot."
+        ),
+        "fixed_url_model": (
+            "Declare {parameter, backend: http-file, url, filename, size, sha256}; only the verified local file is "
+            "injected. Torch Hub declarations use backend: torch-hub, repository_url, immutable revision, entrypoint "
+            "and exact file identities. Model adapters never install Python packages."
         ),
         "local_model": (
-            "Declare an existing absolute model file path in proposal.model_refs. Validation freezes its SHA256; "
-            "do not copy the model into the operator directory."
+            "Declare {parameter, path} in proposal.model_refs for an existing absolute model file path. Validation "
+            "freezes its SHA256; the Plan stores only its logical digest and never the host path."
         ),
     },
     "dependencies": (

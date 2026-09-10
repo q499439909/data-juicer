@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import copy
 import json
 import os
@@ -17,6 +18,7 @@ from .common import (
     PlanFlowError,
     now_iso,
     read_json,
+    sha256_file,
     write_json_atomic,
     write_text_atomic,
 )
@@ -148,6 +150,7 @@ class UserOperatorValidation:
             "replaces": proposal.get("replaces"),
             "assets": validate_assets(proposal.get("assets", {})),
         }
+        self._validate_model_parameters(source, manifest["model_refs"])
         from .user_operator_runtime import dependency_lock
 
         dependency_lock(manifest["dependencies"])
@@ -262,6 +265,39 @@ class UserOperatorValidation:
             return False
 
     @staticmethod
+    def _validate_model_parameters(source, refs):
+        if not refs:
+            return
+        tree = ast.parse(source)
+        init = next(
+            (
+                node
+                for cls in tree.body
+                if isinstance(cls, ast.ClassDef)
+                for node in cls.body
+                if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+            ),
+            None,
+        )
+        arguments = {arg.arg for arg in init.args.args + init.args.kwonlyargs} if init else set()
+        loaded = (
+            {
+                node.id
+                for node in ast.walk(init)
+                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+            }
+            if init is not None
+            else set()
+        )
+        for ref in refs:
+            parameter = ref["parameter"]
+            if parameter not in arguments or parameter not in loaded:
+                raise PlanFlowError(
+                    "MODEL_REQUIREMENT_UNDECLARED",
+                    f"Model parameter {parameter!r} must be accepted and used by the operator constructor",
+                )
+
+    @staticmethod
     def _cleanup(store, temp, job):
         target = store.path(temp)
         if target.parent != store.path(store.home / "operator_tmp"):
@@ -297,6 +333,51 @@ class UserOperatorValidation:
             env["DJ_PRODUCED_DATA_DIR"] = str(Path(runtime_temp) / "produced")
             env["PIP_CACHE_DIR"] = str(Path(runtime_temp) / "pip-cache")
             env["PYTHONPATH"] = str(Path(__file__).resolve().parents[3]) + os.pathsep + env.get("PYTHONPATH", "")
+
+            if manifest["model_refs"]:
+                phase = "model_prepare"
+                from .model_lock_resolver import ModelLockResolver
+
+                request = read_json(temp / "request.json")
+                name = request["name"]
+                recipe = {"process": [{name: request["parameters"]}]}
+                personal = {name: {"_manifest": manifest}}
+                resolver = ModelLockResolver()
+                bindings = resolver.freeze({"recipe": recipe}, personal=personal)
+                runtime_bindings = resolver.attach_local_sources(bindings, personal)
+                paths = resolver.prepare(runtime_bindings)
+                for ref in manifest["model_refs"]:
+                    if ref.get("path") or ref.get("files") or ref.get("backend") == "http-file":
+                        continue
+                    binding = next(
+                        item
+                        for item in bindings
+                        if item.get("model_id") == ref.get("model_id")
+                        and item.get("revision") == ref.get("revision")
+                    )
+                    snapshot = paths[binding["binding_id"]]
+                    ref["files"] = [
+                        {
+                            "path": path.relative_to(snapshot).as_posix(),
+                            "size": path.stat().st_size,
+                            "sha256": sha256_file(path).removeprefix("sha256:"),
+                        }
+                        for path in sorted(snapshot.rglob("*"))
+                        if path.is_file()
+                    ]
+                # Re-freeze after discovery so the published user artifact and
+                # every future Plan contain exact file identities.
+                bindings = resolver.freeze({"recipe": recipe}, personal=personal)
+                runtime_bindings = resolver.attach_local_sources(bindings, personal)
+                paths = resolver.prepare(runtime_bindings, offline=True)
+                materialized, provenance = resolver.materialize(recipe, bindings, paths)
+                request["parameters"] = materialized["process"][0][name]
+                write_json_atomic(temp / "request.json", request)
+                write_json_atomic(temp / "resolved-models.json", provenance)
+                draft = store.operator_path(request["category"], name) / "drafts" / job["job_id"]
+                write_json_atomic(store.path(draft / "manifest.json"), manifest)
+                env["HF_HUB_OFFLINE"] = "1"
+                env["TRANSFORMERS_OFFLINE"] = "1"
 
             def run_command(command, mode="runtime"):
                 nonlocal active_process, phase

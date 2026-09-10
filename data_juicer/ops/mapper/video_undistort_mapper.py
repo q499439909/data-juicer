@@ -61,8 +61,10 @@ class VideoUndistortMapper(Mapper):
         super().__init__(*args, **kwargs)
 
         import importlib.metadata
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
 
         cv2_version = importlib.metadata.version("opencv-python")
+        ensure_runtime_installation_allowed("replace OpenCV")
         subprocess.run(["pip", "install", f"opencv-contrib-python=={cv2_version}"], check=True)
         import cv2
 

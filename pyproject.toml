@@ -189,6 +189,7 @@ dj-process = "data_juicer.tools.process_data:main"
 dj-analyze = "data_juicer.tools.analyze_data:main"
 dj-install = "data_juicer.tools.dj_install:main"
 dj-mcp = "data_juicer.tools.mcp_server:main"
+dj-models = "data_juicer.tools.plan_flow.model_bundle:main"
 
 [build-system]
 requires = [

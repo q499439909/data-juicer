@@ -34,11 +34,12 @@ def test_authoring_spec_defines_a_complete_model_decision_policy():
         "none",
         "api_vlm",
         "remote_model",
+        "fixed_url_model",
         "local_model",
     ]
-    assert set(policy["strategies"]) == {"none", "api_vlm", "remote_model", "local_model"}
+    assert set(policy["strategies"]) == {"none", "api_vlm", "remote_model", "fixed_url_model", "local_model"}
     assert "model_id, revision" in policy["strategies"]["remote_model"]
-    assert "absolute model file path" in policy["strategies"]["local_model"]
+    assert "path" in policy["strategies"]["local_model"]
     assert "exact name==version" in policy["dependencies"]
     assert "backend model caches" in policy["cache"]
     assert "never model weights" in policy["assets"]

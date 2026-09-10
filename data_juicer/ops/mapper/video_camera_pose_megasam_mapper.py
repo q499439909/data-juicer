@@ -119,6 +119,9 @@ class VideoCameraPoseMegaSaMMapper(Mapper):
             sys.path.insert(1, droid_slam_home)
 
         if not os.path.exists(megasam_repo_path):
+            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+            ensure_runtime_installation_allowed("clone an unpinned mega-sam repository")
             subprocess.run(
                 ["git", "clone", "--recursive", "https://github.com/mega-sam/mega-sam.git", megasam_repo_path],
                 check=True,
@@ -183,6 +186,9 @@ class VideoCameraPoseMegaSaMMapper(Mapper):
                 installation link that is compatible with your PyTorch and CUDA versions."""
                 # torch_version = "2.6.0"
                 # cuda_version = "cu124"
+                from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+                ensure_runtime_installation_allowed("install torch-scatter")
                 subprocess.run(
                     [
                         "pip",
@@ -198,6 +204,9 @@ class VideoCameraPoseMegaSaMMapper(Mapper):
                 import droid_backends  # noqa F401
                 import lietorch  # noqa F401
             except ImportError:
+                from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+                ensure_runtime_installation_allowed("replace droid_backends")
                 subprocess.run(["pip", "uninstall", "droid_backends", "-y"])
                 subprocess.run(["python", "setup.py", "install"], cwd=os.path.join(megasam_repo_path, "base"))
 

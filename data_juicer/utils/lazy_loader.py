@@ -3,6 +3,7 @@
 import importlib
 import importlib.resources
 import inspect
+import os
 import subprocess
 import sys
 import traceback
@@ -10,6 +11,14 @@ import types
 
 import tomli
 from loguru import logger
+
+
+def ensure_runtime_installation_allowed(action="install dependencies"):
+    """Protect managed execution from mutating its uv-locked environment."""
+    if os.environ.get("DATA_JUICER_DISABLE_AUTO_INSTALL", "").casefold() in {"1", "true", "yes"}:
+        raise RuntimeError(
+            f"Cannot {action} during managed execution. Add exact packages to uv.lock and deploy with uv sync --frozen."
+        )
 
 
 def get_toml_file_path():
@@ -282,6 +291,7 @@ class LazyLoader(types.ModuleType):
     @classmethod
     def _install_package(cls, package_spec, pip_args=None):
         """Install a package using uv if available, otherwise pip."""
+        ensure_runtime_installation_allowed(f"install {package_spec}")
         # Print trace information for package installation
         logger.debug(f"Installing package: {package_spec}")
         # Get last 3 frames of the stack trace

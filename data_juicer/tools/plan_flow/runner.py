@@ -148,11 +148,11 @@ class PlanRunner:
         if not (run_path / "run.json").is_file():
             raise PlanFlowError("RUN_NOT_FOUND", f"Unknown run: {run_id}")
         state = read_json(run_path / "run.json")
-        if state.get("status") in {"starting", "running"}:
+        if state.get("status") in {"starting", "preparing_models", "running"}:
             handle = self._active_handle(state)
             observed = self.backend.inspect(handle)
             refreshed = read_json(run_path / "run.json")
-            if refreshed.get("status") not in {"starting", "running"}:
+            if refreshed.get("status") not in {"starting", "preparing_models", "running"}:
                 state = refreshed
             elif observed.status == "lost":
                 state.update(
@@ -184,6 +184,9 @@ class PlanRunner:
         report = run_path / "report.md"
         if report.is_file():
             state["report_path"] = str(report)
+        resolved_models = run_path / "resolved-models.json"
+        if resolved_models.is_file():
+            state["resolved_models"] = read_json(resolved_models).get("models", [])
         from .run_status import read_run_steps
 
         plan = self.store.get_plan(task_id, state["plan_version"])["plan"]
@@ -194,7 +197,7 @@ class PlanRunner:
 
     def cancel(self, task_id: str, run_id: str) -> dict[str, Any]:
         state = self.get(task_id, run_id)
-        if state["status"] not in {"starting", "running"}:
+        if state["status"] not in {"starting", "preparing_models", "running"}:
             return state
         handle = self._active_handle(state)
         self.backend.cancel(handle)
@@ -207,7 +210,7 @@ class PlanRunner:
         state = self.get(task_id, run_id)
         if state.get("cleaned_at"):
             return state
-        if state["status"] in {"starting", "running"}:
+        if state["status"] in {"starting", "preparing_models", "running"}:
             raise PlanFlowError("RUN_ACTIVE", f"Cannot clean up an active run: {run_id}")
         raw = state.get("handle")
         if not isinstance(raw, dict):

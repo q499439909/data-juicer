@@ -119,6 +119,18 @@ def build_plan_view(
             "layout": "linear",
             "groups": groups,
             "steps": steps,
+            "model_locks": [
+                {
+                    "binding_id": item.get("binding_id"),
+                    "lock_id": item.get("lock_id"),
+                    "provider": item.get("provider"),
+                    "backend": item.get("backend"),
+                    "model_id": item.get("model_id"),
+                    "revision": item.get("revision"),
+                    "consumer_count": len(item.get("consumers", [])),
+                }
+                for item in plan.get("model_bindings", [])
+            ],
         },
         warnings,
     )

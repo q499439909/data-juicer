@@ -89,9 +89,11 @@ if __name__ == "__main__":
             task_id, _ = runner.store.create_task("validation")
             recipe = read_yaml(root / "recipe.yaml")
             recipe["export_path"] = "${RUN_OUTPUT}/output.jsonl"
+            from .runtime_environment_lock import freeze_runtime_lock
+
             saved = runner.store.save_plan(
                 task_id=task_id,
-                plan={"user_intent": "validation", "recipe": recipe},
+                plan={"user_intent": "validation", "recipe": recipe, "runtime_lock": freeze_runtime_lock()},
                 validation={"ok": True, "errors": [], "warnings": []},
                 artifact_paths=[],
                 base_plan_version=None,
@@ -103,7 +105,7 @@ if __name__ == "__main__":
                 "Disposable operator test",
             )
             state = runner.start(task_id, saved["plan_version"])
-            while state["status"] in {"starting", "running"}:
+            while state["status"] in {"starting", "preparing_models", "running"}:
                 time.sleep(0.1)
                 state = runner.get(task_id, state["run_id"])
             if state["status"] != "succeeded":

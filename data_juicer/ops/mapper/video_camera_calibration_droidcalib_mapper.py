@@ -130,6 +130,9 @@ class VideoCameraCalibrationDroidCalibMapper(Mapper):
         """
 
         if not os.path.exists(self.droid_calib_home):
+            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+            ensure_runtime_installation_allowed("clone an unpinned DroidCalib repository")
             logger.info("Clone DroidCalib...")
             try:
                 subprocess.run(
@@ -159,6 +162,9 @@ class VideoCameraCalibrationDroidCalibMapper(Mapper):
             # For example:
             # torch_version = "2.6.0"
             # cuda_version = "cu124"
+            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+            ensure_runtime_installation_allowed("install torch-scatter")
             subprocess.run(
                 [
                     "pip",
@@ -173,6 +179,9 @@ class VideoCameraCalibrationDroidCalibMapper(Mapper):
         try:
             self._load_droid_module()
         except ImportError:
+            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+            ensure_runtime_installation_allowed("replace droid_backends")
             subprocess.run(["pip", "uninstall", "droid_backends", "-y"])
             subprocess.run(["python", "setup.py", "install"], cwd=self.droid_calib_home, check=True)
 

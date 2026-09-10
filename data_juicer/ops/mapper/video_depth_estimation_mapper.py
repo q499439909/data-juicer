@@ -64,6 +64,9 @@ class VideoDepthEstimationMapper(Mapper):
 
         video_depth_anything_repo_path = os.path.join(DATA_JUICER_ASSETS_CACHE, "Video-Depth-Anything")
         if not os.path.exists(video_depth_anything_repo_path):
+            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+            ensure_runtime_installation_allowed("clone an unpinned Video-Depth-Anything repository")
             subprocess.run(
                 [
                     "git",

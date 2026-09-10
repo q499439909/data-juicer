@@ -313,11 +313,53 @@ def test_dependency_conflicts_and_model_fingerprints(account):
     model = account.home / "model.bin"
     model.parent.mkdir(parents=True, exist_ok=True)
     model.write_bytes(b"first")
-    refs = model_refs([{"path": str(model)}], freeze=True)
+    refs = model_refs([{"parameter": "model_path", "path": str(model)}], freeze=True)
     assert model_refs(refs) == refs
     model.write_bytes(b"changed")
     with pytest.raises(PlanFlowError, match="changed"):
         model_refs(refs)
+
+
+def test_custom_http_model_ref_requires_complete_immutable_identity():
+    from data_juicer.tools.plan_flow.user_operator_resources import model_refs
+
+    locked = model_refs(
+        [
+            {
+                "parameter": "model_path",
+                "backend": "http-file",
+                "url": "https://models.example/weights.onnx",
+                "filename": "weights.onnx",
+                "size": 42,
+                "sha256": "a" * 64,
+            }
+        ]
+    )
+    assert locked[0]["backend"] == "http-file"
+    with pytest.raises(PlanFlowError) as caught:
+        model_refs(
+            [
+                {
+                    "parameter": "model_path",
+                    "backend": "http-file",
+                    "url": "https://models.example/weights.onnx",
+                }
+            ]
+        )
+    assert caught.value.code == "MODEL_HASH_REQUIRED"
+
+
+def test_custom_model_parameter_must_be_injected_and_used():
+    refs = [{"parameter": "model_path", "path": "unused", "sha256": "sha256:" + "a" * 64}]
+    ignored = SOURCE.replace(
+        'def __init__(self, suffix: str = "", **kwargs):',
+        'def __init__(self, model_path, suffix: str = "", **kwargs):',
+    )
+
+    with pytest.raises(PlanFlowError) as caught:
+        UserOperatorValidation._validate_model_parameters(ignored, refs)
+
+    assert caught.value.code == "MODEL_REQUIREMENT_UNDECLARED"
 
 
 def test_timeout_and_smoke_are_not_validated(account):

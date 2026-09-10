@@ -125,6 +125,9 @@ def check_model(model_name, force=False):
     # check if the specified model exists. If it does not exist, download it
     cached_model_path = os.path.join(DJMC, model_name)
     if force:
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+        ensure_runtime_installation_allowed(f"download unlocked model {model_name}")
         if os.path.exists(cached_model_path):
             os.remove(cached_model_path)
             logger.info(f"Model [{cached_model_path}] is invalid. Forcing download...")
@@ -733,6 +736,9 @@ def prepare_hawor_model(hawor_model_path, hawor_config_path, mano_right_path, ma
 
     hawor_repo_path = os.path.join(DATA_JUICER_ASSETS_CACHE, "HaWoR")
     if not os.path.exists(hawor_repo_path):
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+        ensure_runtime_installation_allowed("clone an unpinned HaWoR repository")
         subprocess.run(["git", "clone", "https://github.com/ThunderVVV/HaWoR.git", hawor_repo_path], check=True)
     import sys
 
@@ -1201,6 +1207,9 @@ def prepare_video_blip_model(pretrained_model_name_or_path, *, return_model=True
 def prepare_video_depth_anything(model_path, **model_params):
     video_depth_anything_repo_path = os.path.join(DATA_JUICER_ASSETS_CACHE, "Video-Depth-Anything")
     if not os.path.exists(video_depth_anything_repo_path):
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+        ensure_runtime_installation_allowed("clone an unpinned Video-Depth-Anything repository")
         subprocess.run(
             [
                 "git",
@@ -1281,6 +1290,9 @@ def prepare_vggt_model(model_path, **model_params):
     device = model_params.pop("device", "cpu")
     vggt_repo_path = os.path.join(DATA_JUICER_ASSETS_CACHE, "vggt")
     if not os.path.exists(vggt_repo_path):
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+        ensure_runtime_installation_allowed("clone an unpinned VGGT repository")
         subprocess.run(["git", "clone", "https://github.com/facebookresearch/vggt.git", vggt_repo_path], check=True)
 
     sys.path.append(vggt_repo_path)
@@ -1332,6 +1344,9 @@ def prepare_wilor_model(wilor_model_path, wilor_model_config, detector_model_pat
         )
     wilor_repo_path = os.path.join(DATA_JUICER_ASSETS_CACHE, "WiLoR")
     if not os.path.exists(wilor_repo_path):
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+        ensure_runtime_installation_allowed("clone an unpinned WiLoR repository")
         subprocess.run(["git", "clone", "https://github.com/rolpotamias/WiLoR.git", wilor_repo_path], check=True)
 
     sys.path.append(wilor_repo_path)
@@ -1562,10 +1577,12 @@ class MMLabModel(object):
 
     def _install_required_packages(self):
         import importlib
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
 
         try:
             importlib.import_module("mim")
         except ImportError:
+            ensure_runtime_installation_allowed("install openmim")
             logger.info("Installing openmim...")
             try:
                 subprocess.run([sys.executable, "-m", "pip", "install", "openmim"], check=True)
@@ -1579,6 +1596,7 @@ class MMLabModel(object):
         try:
             importlib.import_module("mmcv")
         except ImportError:
+            ensure_runtime_installation_allowed("install mmcv")
             logger.info("Installing mmcv using mim...")
             try:
                 subprocess.run([sys.executable, "-m", "mim", "install", "mmcv==2.1.0"], check=True)
@@ -1592,6 +1610,7 @@ class MMLabModel(object):
         try:
             importlib.import_module("mmdeploy")
         except ImportError:
+            ensure_runtime_installation_allowed("install mmdeploy")
             logger.info("Installing mmdeploy using mim...")
             try:
                 subprocess.run([sys.executable, "-m", "mim", "install", "mmdeploy"], check=True)
@@ -1672,6 +1691,9 @@ def prepare_sam_3d_body_model(
     """
     sam_3d_body_repo_path = os.path.join(DATA_JUICER_ASSETS_CACHE, "sam-3d-body")
     if not os.path.exists(sam_3d_body_repo_path):
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+        ensure_runtime_installation_allowed("clone an unpinned SAM-3D-Body repository")
         subprocess.run(
             [
                 "git",
@@ -1689,6 +1711,9 @@ def prepare_sam_3d_body_model(
         try:
             importlib.import_module("modelscope")
         except ImportError:
+            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+            ensure_runtime_installation_allowed("install modelscope")
             logger.info("Installing modelscope...")
             subprocess.run([sys.executable, "-m", "pip", "install", "modelscope"], check=True)
         logger.info("Downloading model 'facebook/sam-3d-body-dinov3'...")
@@ -1783,6 +1808,9 @@ def prepare_SenseVoiceSmall_model(pretrained_model_name_or_path, **model_params)
     final_dir = os.path.join(base_dir, "SenseVoice")
 
     if not os.path.exists(final_dir):
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+        ensure_runtime_installation_allowed("clone an unpinned SenseVoice repository")
         print(f"Starting direct clone from {repo_url}...")
         try:
             os.makedirs(base_dir, exist_ok=True)
@@ -1863,6 +1891,9 @@ def prepare_YOLOv8_human_model(
     final_dir = os.path.join(base_dir, new_name)
 
     if not os.path.exists(final_dir):
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+        ensure_runtime_installation_allowed("clone an unpinned YOLOv8-human repository")
         print(f"Starting direct clone from {repo_url}...")
         try:
             os.makedirs(base_dir, exist_ok=True)
@@ -1914,6 +1945,9 @@ def prepare_face_detect_S3FD_model(model_path=None, **model_params):
     model_save_dir = os.path.join(final_dir, "model/faceDetector/s3fd")
 
     if not os.path.exists(final_dir):
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
+        ensure_runtime_installation_allowed("clone an unpinned Light-ASD repository")
         print(f"Starting direct clone from {repo_url}...")
         try:
             os.makedirs(base_dir, exist_ok=True)

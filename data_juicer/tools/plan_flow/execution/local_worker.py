@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -57,7 +58,24 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
     try:
         store.verify_bundle(task_id, plan_version)
         plan = read_yaml(plan_path / "plan.yaml")
+        from ..runtime_environment_lock import verify_runtime_lock
+
+        bindings = plan.get("model_bindings", [])
+        required_packages = {
+            str(package).casefold()
+            for binding in bindings
+            for package in binding.get("runtime_packages", [])
+        }
+        required_packages.update(
+            str(binding["distribution"]).casefold()
+            for binding in bindings
+            if binding.get("backend") == "python-distribution"
+        )
+        verify_runtime_lock(plan.get("runtime_lock"), required_packages=required_packages)
+        # No production execution path may mutate the shared DJ environment.
+        os.environ["DATA_JUICER_DISABLE_AUTO_INSTALL"] = "1"
         recipe = read_yaml(run_path / "materialized-recipe.yaml")
+        selected = {}
         if plan.get("operator_bindings"):
             from ..user_operator_store import UserOperatorStore, resolve_bindings
             selected = resolve_bindings(plan, UserOperatorStore(user_id=plan["operator_owner"]))
@@ -75,6 +93,25 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
                 for package, expected in dependency_lock(item["_manifest"].get("dependencies", [])).items():
                     if importlib.metadata.version(package) != expected:
                         raise PlanFlowError("OPERATOR_RUNTIME_BLOCKED", "Installed dependency differs from the validated lock")
+        if bindings:
+            from ..model_lock_resolver import ModelLockResolver
+
+            state.update({"status": "preparing_models", "updated_at": now_iso()})
+            write_json_atomic(run_path / "run.json", state)
+            resolver = ModelLockResolver()
+            runtime_bindings = resolver.attach_local_sources(bindings, selected)
+            paths = resolver.prepare(runtime_bindings)
+            recipe, provenance = resolver.materialize(recipe, bindings, paths)
+            write_json_atomic(run_path / "resolved-models.json", provenance)
+            from ..common import write_yaml_atomic
+
+            write_yaml_atomic(run_path / "materialized-recipe.yaml", recipe)
+        # The preparation phase is the only phase allowed to contact a model
+        # registry. DJ/Transformers must consume verified local snapshots.
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["TRANSFORMERS_OFFLINE"] = "1"
+        state.update({"status": "running", "updated_at": now_iso()})
+        write_json_atomic(run_path / "run.json", state)
         from data_juicer.config import init_configs
         from data_juicer.core.executor import ExecutorFactory
 

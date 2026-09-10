@@ -528,6 +528,10 @@
           "display_name": "配置",
           "description": "用于配置“配置”；该参数可按需设置，具体取值范围请参考英文原始说明。"
         },
+        "hf_tokenizer": {
+          "display_name": "Hugging Face 分词器",
+          "description": "启用分词时使用的已锁定 Hugging Face 分词器模型。"
+        },
         "min_ratio": {
           "display_name": "最小占比",
           "description": "用于配置“最小占比”；该参数可按需设置，具体取值范围请参考英文原始说明。"
@@ -3635,6 +3639,10 @@
         "min_score": {
           "display_name": "最低得分",
           "description": "用于配置“最低得分”；该参数可按需设置，具体取值范围请参考英文原始说明。"
+        },
+        "model_path": {
+          "display_name": "模型路径",
+          "description": "FastText 语言识别模型路径；执行计划会注入经过哈希验证的本地文件。"
         }
       }
     },
@@ -6827,6 +6835,10 @@
       "summary": "用于对多模态样本执行视频描述生成基于音频处理，并将生成或转换后的结果写回数据。",
       "description": "该算子对输入的多模态样本执行视频描述生成基于音频处理，并把生成或转换后的结果写入配置字段。具体输入字段、处理强度、执行方式和输出行为可通过下方初始化参数调整。",
       "parameters": {
+        "hf_qwen_audio": {
+          "display_name": "Qwen 音频模型",
+          "description": "用于理解视频音频内容的已锁定 Hugging Face 模型。"
+        },
         "keep_original_sample": {
           "display_name": "KEEP配置配置",
           "description": "用于配置“KEEP配置配置”；该参数可按需设置，具体取值范围请参考英文原始说明。"

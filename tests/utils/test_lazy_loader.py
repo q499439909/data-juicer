@@ -30,6 +30,11 @@ class LazyLoaderTest(DataJuicerTestCaseBase):
             nonexistent = LazyLoader('nonexistent', 'nonexistent_module', auto_install=False)
             dir(nonexistent)
 
+    def test_managed_execution_disables_installation(self):
+        with patch.dict(os.environ, {"DATA_JUICER_DISABLE_AUTO_INSTALL": "1"}):
+            with self.assertRaisesRegex(RuntimeError, "uv.lock"):
+                LazyLoader._install_package("definitely-not-installed")
+
     def test_error_handling(self):
         # Test error handling for missing dependencies
         with patch('subprocess.check_call') as mock_check_call:

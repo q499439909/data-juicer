@@ -1,5 +1,7 @@
 """Unified discovery without importing personal operators into the server registry."""
 
+from functools import lru_cache
+
 from . import discovery
 from .user_operator_store import UserOperatorStore, current_user, public_candidate
 
@@ -27,6 +29,7 @@ _SCHEMA_FIELDS = (
     "validation_basis",
     "validation_summary",
     "runtime_status",
+    "model_locks",
 )
 _USER_MIN_QUERY_COVERAGE = 0.25
 _QUERY_STOP_WORDS = {
@@ -63,7 +66,48 @@ def builtin(item):
         "validation_basis": "builtin_release",
         "validation_summary": {"limitations": ["Built-in release, not current-task quality evidence"]},
         "runtime_status": "unknown",
+        "model_locks": _builtin_model_locks().get(name, []),
     }
+
+
+@lru_cache(maxsize=1)
+def _builtin_model_locks():
+    from .model_lock_resolver import load_builtin_model_catalog
+
+    result = {}
+    for model in load_builtin_model_catalog()["models"]:
+        for consumer in model.get("consumers", []):
+            result.setdefault(consumer["operator"], []).append(
+                {
+                    "provider": "dj",
+                    "lock_id": model["lock_id"],
+                    "backend": model["backend"],
+                    "model_id": model.get("model_id"),
+                    "revision": model.get("revision"),
+                    "distribution": model.get("distribution"),
+                    "version": model.get("version"),
+                    "parameter": consumer.get("parameter"),
+                    "status": "locked",
+                }
+            )
+    return result
+
+
+def _personal_model_locks(candidate):
+    result = []
+    for ref in candidate.get("_manifest", {}).get("model_refs", []):
+        result.append(
+            {
+                "provider": "user",
+                "backend": "local-file" if ref.get("path") else "huggingface",
+                "model_id": ref.get("model_id"),
+                "revision": ref.get("revision"),
+                "parameter": ref.get("parameter"),
+                "sha256": ref.get("sha256"),
+                "status": "locked",
+            }
+        )
+    return result
 
 
 def personal():
@@ -91,7 +135,8 @@ def schemas(refs):
     operators, missing = [], []
     for ref in dict.fromkeys(refs):
         if ref.startswith("user:"):
-            operators.append(public_candidate(UserOperatorStore().resolve(ref)))
+            candidate = UserOperatorStore().resolve(ref)
+            operators.append({**public_candidate(candidate), "model_locks": _personal_model_locks(candidate)})
         else:
             item = discovery.operator_schema(ref.removeprefix("dj:"))
             if item:

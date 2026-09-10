@@ -13,8 +13,19 @@ def model_refs(refs, *, freeze=False):
         raise PlanFlowError("INVALID_MODEL_REFS", "model_refs must be a list")
     result = []
     for ref in refs:
+        if not isinstance(ref, dict):
+            raise PlanFlowError("INVALID_MODEL_REFS", "Every model reference must be an object")
         item = dict(ref)
-        if item.get("path"):
+        backend = "local-file" if item.get("path") else str(item.get("backend") or "huggingface")
+        if backend not in {"local-file", "huggingface", "modelscope", "http-file", "torch-hub"}:
+            raise PlanFlowError("INVALID_MODEL_REFS", f"Unsupported model backend: {backend}")
+        item["backend"] = backend
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", str(item.get("parameter", ""))):
+            raise PlanFlowError(
+                "MODEL_REQUIREMENT_UNDECLARED",
+                "Every custom model reference must name its constructor parameter",
+            )
+        if backend == "local-file":
             path = Path(item["path"]).expanduser()
             if not path.is_absolute() or not path.is_file():
                 raise PlanFlowError(
@@ -30,11 +41,48 @@ def model_refs(refs, *, freeze=False):
                     "Local models must be fingerprinted by validation",
                 )
             item["sha256"] = actual
-        elif not item.get("model_id") or not re.fullmatch(r"[a-fA-F0-9]{40,64}", str(item.get("revision", ""))):
+        elif backend in {"huggingface", "modelscope"} and (
+            not item.get("model_id") or not re.fullmatch(r"[a-fA-F0-9]{40,64}", str(item.get("revision", "")))
+        ):
             raise PlanFlowError(
                 "MODEL_REVISION_REQUIRED",
                 "Remote model references need model_id and an immutable commit revision",
             )
+        elif backend == "http-file":
+            digest = str(item.get("sha256", "")).removeprefix("sha256:")
+            if (
+                not str(item.get("url", "")).startswith("https://")
+                or not item.get("filename")
+                or type(item.get("size")) is not int
+                or not re.fullmatch(r"[a-f0-9]{64}", digest)
+            ):
+                raise PlanFlowError(
+                    "MODEL_HASH_REQUIRED", "HTTP model refs require HTTPS URL, filename, size and SHA256"
+                )
+            item["sha256"] = digest
+        elif backend == "torch-hub" and (
+            not str(item.get("repository_url", "")).startswith("https://")
+            or not re.fullmatch(r"[a-fA-F0-9]{40,64}", str(item.get("revision", "")))
+            or not item.get("files")
+        ):
+            raise PlanFlowError(
+                "MODEL_REVISION_REQUIRED", "Torch Hub refs require repository_url, immutable commit and files"
+            )
+        if item.get("files") is not None:
+            if not isinstance(item["files"], list):
+                raise PlanFlowError("INVALID_MODEL_REFS", "Model files must be an array")
+            for file in item["files"]:
+                relative = Path(str(file.get("path", ""))) if isinstance(file, dict) else Path("..")
+                if (
+                    not isinstance(file, dict)
+                    or set(file) != {"path", "size", "sha256"}
+                    or relative.is_absolute()
+                    or ".." in relative.parts
+                    or type(file["size"]) is not int
+                    or file["size"] < 0
+                    or not re.fullmatch(r"[a-f0-9]{64}", str(file["sha256"]))
+                ):
+                    raise PlanFlowError("INVALID_MODEL_REFS", "Model file identity is invalid")
         result.append(item)
     return result
 

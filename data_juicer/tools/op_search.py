@@ -278,6 +278,10 @@ class OPSearcher:
                 singular = token[:-1]
                 if len(singular) > 1:
                     tokens.append(singular)
+        # A requirement phrased as "exactly one/two/..." expresses a count
+        # constraint even when it does not contain the literal word "count".
+        if re.search(r"\bexactly\s+(?:one|two|three|four|five|six|seven|eight|nine|\d+)\b", text):
+            tokens.extend(("count", "number"))
         return tokens
 
     def _filter_by_tags_and_type(

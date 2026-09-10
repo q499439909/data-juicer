@@ -71,9 +71,12 @@ class ImageMMPoseMapper(Mapper):
         )
 
     def _install_required_packages(self):
+        from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+
         try:
             importlib.import_module("mim")
         except ImportError:
+            ensure_runtime_installation_allowed("install openmim")
             logger.info("Installing openmim...")
             try:
                 subprocess.run([sys.executable, "-m", "pip", "install", "openmim"], check=True)
@@ -86,6 +89,7 @@ class ImageMMPoseMapper(Mapper):
         try:
             importlib.import_module("mmpose")
         except ImportError:
+            ensure_runtime_installation_allowed("install mmpose")
             logger.info("Installing mmpose...")
             try:
                 subprocess.run(
@@ -101,6 +105,7 @@ class ImageMMPoseMapper(Mapper):
         try:
             importlib.import_module("mmdet")
         except ImportError:
+            ensure_runtime_installation_allowed("install mmdet")
             logger.info("Installing mmdet using mim...")
             try:
                 subprocess.run([sys.executable, "-m", "mim", "install", "mmdet==3.2.0"], check=True)

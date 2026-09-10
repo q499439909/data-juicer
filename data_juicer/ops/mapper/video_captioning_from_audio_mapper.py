@@ -21,10 +21,13 @@ class VideoCaptioningFromAudioMapper(Mapper):
     _accelerator = "cuda"
     _batched_op = True
 
-    def __init__(self, keep_original_sample: bool = True, *args, **kwargs):
+    def __init__(
+        self, hf_qwen_audio: str = "Qwen/Qwen-Audio", keep_original_sample: bool = True, *args, **kwargs
+    ):
         """
         Initialization method.
 
+        :param hf_qwen_audio: Hugging Face Qwen-Audio model or a verified local snapshot path.
         :param keep_original_sample: whether to keep the original sample. If
             it's set to False, there will be only captioned sample in the
             final datasets and the original sample will be removed. It's True
@@ -47,7 +50,7 @@ class VideoCaptioningFromAudioMapper(Mapper):
         self.keep_original_sample = keep_original_sample
         self.extra_args = kwargs
 
-        self._hf_qwen_audio = "Qwen/Qwen-Audio"
+        self._hf_qwen_audio = hf_qwen_audio
         self.model_key = prepare_model(
             model_type="huggingface",
             pretrained_model_name_or_path=self._hf_qwen_audio,

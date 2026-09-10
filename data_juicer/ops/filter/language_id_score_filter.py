@@ -21,13 +21,21 @@ class LanguageIDScoreFilter(Filter):
 
     _batched_op = True
 
-    def __init__(self, lang: Union[str, List[str]] = "", min_score: float = 0.8, *args, **kwargs):
+    def __init__(
+        self,
+        lang: Union[str, List[str]] = "",
+        min_score: float = 0.8,
+        model_path: str = "lid.176.bin",
+        *args,
+        **kwargs,
+    ):
         """
         Initialization method.
 
         :param lang: Samples in which languages to keep.
         :param min_score: The min language identification confidence
             scores of samples to keep.
+        :param model_path: FastText language identification model path.
         :param args: extra args
         :param kwargs: extra args
         """
@@ -42,7 +50,7 @@ class LanguageIDScoreFilter(Filter):
             # lang is a list of multiple languages
             self.lang = lang
         self.min_score = min_score
-        self.model_key = prepare_model(model_type="fasttext")
+        self.model_key = prepare_model(model_type="fasttext", model_name=model_path)
 
     def compute_stats_single(self, sample, *args, **kwargs):
         # check if it's computed already

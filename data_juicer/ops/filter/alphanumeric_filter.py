@@ -24,7 +24,13 @@ class AlphanumericFilter(Filter):
     _batched_op = True
 
     def __init__(
-        self, tokenization: bool = False, min_ratio: float = 0.25, max_ratio: float = sys.maxsize, *args, **kwargs
+        self,
+        tokenization: bool = False,
+        hf_tokenizer: str = "EleutherAI/pythia-6.9b-deduped",
+        min_ratio: float = 0.25,
+        max_ratio: float = sys.maxsize,
+        *args,
+        **kwargs,
     ):
         """
         Initialization method.
@@ -33,6 +39,7 @@ class AlphanumericFilter(Filter):
             to the total number of tokens. if tokenization=False, it
             will count the ratio of alphanumeric to the total number of
             characters.
+        :param hf_tokenizer: Hugging Face tokenizer model used when tokenization is enabled.
         :param min_ratio: The min filter ratio in alphanumeric op,
             samples will be filtered if their alphabet/numeric ratio is
             below this parameter.
@@ -51,7 +58,7 @@ class AlphanumericFilter(Filter):
         if tokenization:
             self.model_key = prepare_model(
                 model_type="huggingface",
-                pretrained_model_name_or_path="EleutherAI/pythia-6.9b-deduped",
+                pretrained_model_name_or_path=hf_tokenizer,
                 return_model=False,
             )
 

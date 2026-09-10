@@ -20,6 +20,7 @@ from .common import PlanFlowError
 from . import operator_catalog_service as unified_catalog
 from .user_operator_store import UserOperatorStore, current_user, resolve_bindings
 from .capability_schema import CapabilityCatalog, CapabilityDescriptor, OperatorArtifact
+from .model_lock_resolver import ModelLockResolver
 
 
 class BrokerHttpClient:
@@ -172,6 +173,10 @@ class PlanFlowService:
             store.plan_path(task_id, base_plan_version)
         import copy
         plan = copy.deepcopy(plan)
+        # Model bindings are derived from the curated catalog and immutable user
+        # manifests. Never trust paths or revisions supplied by a plan author.
+        plan.pop("model_bindings", None)
+        plan.pop("runtime_lock", None)
         personal = resolve_bindings(plan)
         if personal:
             plan["operator_owner"] = UserOperatorStore().user_id
@@ -194,6 +199,17 @@ class PlanFlowService:
         normalized, validation, artifacts = normalize_and_validate(
             str(store.workspace), plan, external_operator_names=external_names, operator_schemas=personal
         )
+        if validation["ok"]:
+            try:
+                normalized["model_bindings"] = ModelLockResolver().freeze(normalized, personal=personal)
+                from .runtime_environment_lock import freeze_runtime_lock
+
+                normalized["runtime_lock"] = freeze_runtime_lock()
+            except PlanFlowError as exc:
+                validation["ok"] = False
+                validation["errors"].append(
+                    {"code": exc.code, "path": "model_bindings", "message": exc.message}
+                )
         saved = store.save_plan(
             task_id=task_id,
             plan=normalized,
@@ -248,6 +264,25 @@ class PlanFlowService:
         content_hash = store.verify_bundle(task_id, plan_version)
         info = store.get_plan(task_id, plan_version)
         self._authorize_personal_plan(info["plan"])
+        if not info["plan"].get("runtime_lock"):
+            raise PlanFlowError(
+                "LEGACY_RUNTIME_LOCK_REQUIRED",
+                "This historical Plan predates Python runtime locking; create and approve a new Plan version before running it",
+            )
+        if not info["plan"].get("model_bindings"):
+            personal = resolve_bindings(info["plan"])
+            resolver = ModelLockResolver()
+            try:
+                needs_binding = bool(resolver.freeze(info["plan"], personal=personal))
+            except PlanFlowError as exc:
+                if exc.code not in {"MODEL_REQUIREMENT_UNDECLARED", "MODEL_LOCK_MISSING"}:
+                    raise
+                needs_binding = True
+            if needs_binding:
+                raise PlanFlowError(
+                    "LEGACY_MODEL_BINDING_REQUIRED",
+                    "This historical Plan predates model locking; create and approve a new Plan version before running it",
+                )
         if not info.get("approval") or info["approval"].get("content_hash") != content_hash:
             raise PlanFlowError("APPROVAL_REQUIRED", "Approve this exact plan version before running it")
         runtime_assessment = self._runtime_assessment(info["plan"])

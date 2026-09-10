@@ -45,6 +45,12 @@ class RuntimePreflight:
         warnings: list[dict[str, Any]] = []
         operators: list[dict[str, Any]] = []
         model_inputs: list[dict[str, Any]] = []
+        model_locks = plan.get("model_bindings", []) if isinstance(plan, dict) else []
+        locked_consumers = {
+            (consumer.get("step_index"), consumer.get("parameter"))
+            for binding in model_locks
+            for consumer in binding.get("consumers", [])
+        }
 
         if execution_mode == "broker":
             backend = "broker"
@@ -147,14 +153,21 @@ class RuntimePreflight:
                             "parameter": parameter_name,
                             "value": value,
                             "source": "plan" if parameter_name in params else "operator_default",
+                            "lock_status": "locked" if (index, parameter_name) in locked_consumers else "unlocked",
                         }
                     )
 
-        if model_inputs and any("hf" in set((operator_schema(item["operator"]) or {}).get("tags", [])) for item in model_inputs):
+        if model_inputs and any(
+            "hf" in set((operator_schema(item["operator"]) or {}).get("tags", [])) for item in model_inputs
+        ):
             warnings.append(
                 {
                     "code": "MODEL_DOWNLOAD_MAY_BE_REQUIRED",
-                    "message": "One or more Hugging Face model artifacts may be downloaded on first use.",
+                    "message": (
+                        "One or more locked Hugging Face model revisions may be downloaded on first use."
+                        if model_locks
+                        else "One or more Hugging Face model artifacts may be downloaded on first use."
+                    ),
                 }
             )
 
@@ -180,6 +193,17 @@ class RuntimePreflight:
             },
             "operators": operators,
             "model_inputs": model_inputs,
+            "model_locks": [
+                {
+                    "binding_id": item.get("binding_id"),
+                    "lock_id": item.get("lock_id"),
+                    "provider": item.get("provider"),
+                    "backend": item.get("backend"),
+                    "model_id": item.get("model_id"),
+                    "revision": item.get("revision"),
+                }
+                for item in model_locks
+            ],
             "blocking_issues": blockers,
             "warnings": warnings,
         }

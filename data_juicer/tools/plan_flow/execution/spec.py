@@ -12,7 +12,7 @@ from ..common import PlanFlowError
 _BACKEND = re.compile(r"[a-z][a-z0-9-]{0,63}\Z")
 _RUN_ID = re.compile(r"run[_-][A-Za-z0-9][A-Za-z0-9._-]{0,126}\Z")
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_ACTIVE_STATUSES = {"starting", "running"}
+_ACTIVE_STATUSES = {"starting", "preparing_models", "running"}
 _TERMINAL_STATUSES = {"succeeded", "failed", "cancelled", "lost"}
 _STATUSES = _ACTIVE_STATUSES | _TERMINAL_STATUSES
 
