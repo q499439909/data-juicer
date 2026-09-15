@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Pure logic for validate_system_spec."""
 
 from __future__ import annotations

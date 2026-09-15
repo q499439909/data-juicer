@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Operator retrieval backend package.
 
 This package contains the backend modules for operator retrieval:

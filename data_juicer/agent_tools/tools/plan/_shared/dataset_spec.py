@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Shared dataset-spec helpers for plan tools."""
 
 from __future__ import annotations

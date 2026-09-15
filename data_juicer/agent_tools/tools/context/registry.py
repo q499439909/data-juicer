@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Registry for context tool specs."""
 
 from __future__ import annotations

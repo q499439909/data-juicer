@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Installed-operator lookup utilities for retrieve tools."""
 
 from __future__ import annotations
@@ -22,9 +21,7 @@ def get_available_operator_names() -> Set[str]:
     """
 
     try:
-        from .backend import (
-            get_op_catalog,
-        )
+        from .backend import get_op_catalog
 
         info = get_op_catalog()
         return {

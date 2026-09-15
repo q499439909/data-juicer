@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Structured operator catalog listing."""
 
 from __future__ import annotations

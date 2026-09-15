@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """develop_operator tool package."""
 
 from .input import DevelopOperatorInput, GenericOutput

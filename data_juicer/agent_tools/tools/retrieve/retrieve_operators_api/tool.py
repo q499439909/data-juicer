@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec for retrieve_operators_api."""
 
 from __future__ import annotations

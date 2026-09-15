@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Agent-facing atomic tools for dataset inspection, planning, and execution.
 
 The tools are runtime agnostic: every tool is declared as a ``ToolSpec`` with a

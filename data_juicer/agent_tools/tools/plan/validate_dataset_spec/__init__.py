@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """validate_dataset_spec tool package."""
 
 from .input import ValidateDatasetSpecInput

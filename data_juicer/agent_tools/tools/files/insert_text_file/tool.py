@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec for insert_text_file."""
 
 from __future__ import annotations

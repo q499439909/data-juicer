@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Plan tools and deterministic planner helpers."""
 
 from ._shared.dataset_spec import validate_dataset_spec_payload

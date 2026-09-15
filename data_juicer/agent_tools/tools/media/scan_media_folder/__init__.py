@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """scan_media_folder tool package."""
 
 from .input import ScanMediaFolderInput, ScanMediaFolderOutput

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Retrieval backend abstraction and strategy manager.
 
 Architecture

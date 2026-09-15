@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """plan_validate tool package."""
 
 from .input import PlanValidateInput

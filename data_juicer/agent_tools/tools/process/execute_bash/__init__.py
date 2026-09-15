@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """execute_bash tool package — SmartBash harness."""
 
 from .input import ExecuteBashInput, GenericOutput

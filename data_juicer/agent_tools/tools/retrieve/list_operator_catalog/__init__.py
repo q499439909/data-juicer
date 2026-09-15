@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """list_operator_catalog tool package."""
 
 from .input import GenericOutput, ListOperatorCatalogInput

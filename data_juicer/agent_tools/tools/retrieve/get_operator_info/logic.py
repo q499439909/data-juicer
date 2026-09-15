@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Structured operator info lookup."""
 
 from __future__ import annotations

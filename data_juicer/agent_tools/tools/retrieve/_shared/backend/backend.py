@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Operator retrieval backend: data-source management and public API.
 
 This module is now a thin coordination layer.  The heavy lifting has been

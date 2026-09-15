@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Apply tools."""
 
 from .apply_recipe import ApplyRecipeInput, ApplyResult, ApplyUseCase

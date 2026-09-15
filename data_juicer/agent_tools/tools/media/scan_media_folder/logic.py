@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Pure logic for scan_media_folder — runtime-agnostic."""
 
 from __future__ import annotations

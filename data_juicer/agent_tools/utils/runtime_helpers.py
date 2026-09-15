@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Shared runtime helpers for session tools, adapters, and CLI surfaces."""
 
 from __future__ import annotations

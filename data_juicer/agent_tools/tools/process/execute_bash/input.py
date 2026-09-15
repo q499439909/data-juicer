@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input model for execute_bash."""
 
 from __future__ import annotations

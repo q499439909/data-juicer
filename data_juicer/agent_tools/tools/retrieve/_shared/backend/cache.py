@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Thread-safe cache manager for retrieval backends."""
 
 from __future__ import annotations

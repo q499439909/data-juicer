@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """apply_recipe tool package."""
 
 from .input import ApplyRecipeInput, GenericOutput

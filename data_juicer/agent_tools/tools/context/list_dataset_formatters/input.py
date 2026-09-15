@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input models for list_dataset_formatters."""
 
 from __future__ import annotations

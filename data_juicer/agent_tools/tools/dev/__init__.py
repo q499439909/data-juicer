@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Developer/operator scaffolding tools."""
 
 from .develop_operator import (

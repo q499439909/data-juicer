@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Structured operator retrieval service for DJX and session tools."""
 
 from __future__ import annotations
@@ -11,10 +10,7 @@ import threading
 from typing import Any, Dict, List
 
 from .backend.result_builder import trace_step
-from .operator_registry import (
-    get_available_operator_names,
-    resolve_operator_name,
-)
+from .operator_registry import get_available_operator_names, resolve_operator_name
 
 _logger = logging.getLogger(__name__)
 

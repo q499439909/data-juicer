@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Shared process-spec helpers for plan tools."""
 
 from __future__ import annotations

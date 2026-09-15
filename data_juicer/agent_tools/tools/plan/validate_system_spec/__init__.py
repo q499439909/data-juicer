@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """validate_system_spec tool package."""
 
 from .input import ValidateSystemSpecInput

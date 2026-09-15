@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Bridge to Data-Juicer's native configuration system.
 
 This module provides a dynamic bridge to Data-Juicer's configuration,

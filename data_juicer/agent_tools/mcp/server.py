@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MCP server exposing built-in tool specifications to generic agents."""
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Lightweight dataset probing utilities for planning-time schema inference."""
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """execute_python_code tool package."""
 
 from .input import ExecutePythonCodeInput, GenericOutput

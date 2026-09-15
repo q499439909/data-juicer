@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Utilities for calling LLMs via OpenAI-compatible endpoints."""
 
 from __future__ import annotations

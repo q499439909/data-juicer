@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """list_system_config tool package."""
 
 from __future__ import annotations

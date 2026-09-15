@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Operator catalog builders from OPSearcher records."""
 
 from __future__ import annotations

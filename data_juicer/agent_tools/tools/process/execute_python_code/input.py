@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input models for execute_python_code."""
 
 from __future__ import annotations

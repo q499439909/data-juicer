@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """retrieve_operators_api tool package."""
 
 from .input import GenericOutput, RetrieveOperatorsAPIInput

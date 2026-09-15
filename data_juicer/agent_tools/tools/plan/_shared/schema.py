@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Planner schemas."""
 
 from __future__ import annotations

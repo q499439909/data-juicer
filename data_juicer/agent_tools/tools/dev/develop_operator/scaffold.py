@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Utilities for non-invasive custom operator scaffolding."""
 
 from __future__ import annotations

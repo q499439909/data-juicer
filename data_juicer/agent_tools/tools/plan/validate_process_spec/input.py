@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input models for validate_process_spec."""
 
 from __future__ import annotations

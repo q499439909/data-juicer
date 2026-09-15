@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec for assemble_plan."""
 
 from __future__ import annotations

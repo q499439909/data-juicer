@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input models for scan_media_folder."""
 
 from __future__ import annotations

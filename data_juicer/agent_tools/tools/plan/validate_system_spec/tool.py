@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec for validate_system_spec."""
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec binding for scan_media_folder."""
 
 from __future__ import annotations

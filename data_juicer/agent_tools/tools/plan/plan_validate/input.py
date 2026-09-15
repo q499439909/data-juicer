@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input models for plan_validate."""
 
 from __future__ import annotations

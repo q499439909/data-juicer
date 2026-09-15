@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool-level APIs for deterministic Data-Juicer execution."""
 
 from __future__ import annotations

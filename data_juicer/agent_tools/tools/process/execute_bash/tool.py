@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec for execute_bash — SmartBash harness."""
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Pure logic for execute_bash — SmartBash execution with structured parsing."""
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Pure logic for execute_python_code."""
 
 from __future__ import annotations

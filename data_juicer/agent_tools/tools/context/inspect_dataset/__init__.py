@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """inspect_dataset tool package."""
 
 from .input import GenericOutput, InspectDatasetInput

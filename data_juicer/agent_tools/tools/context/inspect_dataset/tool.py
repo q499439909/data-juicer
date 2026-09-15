@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec for inspect_dataset."""
 
 from __future__ import annotations

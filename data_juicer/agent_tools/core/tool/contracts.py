@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Runtime-agnostic tool contracts."""
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Core runtime-agnostic tool contracts and registry."""
 
 from .contracts import (

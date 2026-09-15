@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Shared retrieval internals for retrieve tool wrappers."""
 
 from .logic import (

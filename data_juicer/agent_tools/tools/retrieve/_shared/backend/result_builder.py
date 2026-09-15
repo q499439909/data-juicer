@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Shared helpers for building retrieval results and trace entries.
 
 Extracted from backend.py and logic.py to eliminate duplicated code across

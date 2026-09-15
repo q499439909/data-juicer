@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Pure logic for write_text_file."""
 
 from __future__ import annotations

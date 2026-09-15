@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """list_dataset_formatters tool package."""
 
 from .input import ListDatasetFormattersInput

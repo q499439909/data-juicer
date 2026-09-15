@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input models for view_text_file."""
 
 from __future__ import annotations

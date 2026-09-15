@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 r"""Command-flavour detection and structured stdout parsing.
 
 Detects which command was executed (grep, find, tail, head, cat, wc, ls, ...)

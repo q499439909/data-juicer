@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool-profile definitions for constrained tool surfaces."""
 
 from __future__ import annotations

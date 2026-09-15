@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec for execute_python_code."""
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """get_operator_info tool package."""
 
 from .input import GenericOutput, GetOperatorInfoInput

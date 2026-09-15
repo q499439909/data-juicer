@@ -1,15 +1,10 @@
-# -*- coding: utf-8 -*-
 """Tool-level APIs for custom operator scaffold generation."""
 
 from __future__ import annotations
 
 from typing import Any, Dict
 
-from .scaffold import (
-    ScaffoldResult,
-    generate_operator_scaffold,
-    run_smoke_check,
-)
+from .scaffold import ScaffoldResult, generate_operator_scaffold, run_smoke_check
 
 
 class DevUseCase:

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec for list_dataset_fields."""
 
 from __future__ import annotations

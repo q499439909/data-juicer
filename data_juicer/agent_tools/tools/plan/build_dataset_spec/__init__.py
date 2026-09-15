@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """build_dataset_spec tool package."""
 
 from .input import BuildDatasetSpecInput

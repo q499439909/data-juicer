@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec binding for submit_ray_job."""
 
 from __future__ import annotations

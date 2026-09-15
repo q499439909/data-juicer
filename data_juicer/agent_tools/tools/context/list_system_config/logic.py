@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Pure logic for list_system_config."""
 
 from __future__ import annotations

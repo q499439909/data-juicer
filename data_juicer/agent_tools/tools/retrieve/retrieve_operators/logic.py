@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Local-only retrieval logic wrapper."""
 
 from __future__ import annotations

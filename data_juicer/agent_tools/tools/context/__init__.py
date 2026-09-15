@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Context-oriented tools."""
 
 from .inspect_dataset import InspectDatasetInput, inspect_dataset_schema

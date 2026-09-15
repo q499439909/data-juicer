@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Discovery-based catalog of built-in tool specifications."""
 
 from __future__ import annotations

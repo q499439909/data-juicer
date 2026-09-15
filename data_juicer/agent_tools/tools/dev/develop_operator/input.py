@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input models for develop_operator."""
 
 from __future__ import annotations

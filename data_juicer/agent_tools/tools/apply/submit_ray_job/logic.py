@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Pure logic for submit_ray_job — runtime-agnostic."""
 
 from __future__ import annotations

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input models for build_system_spec."""
 
 from __future__ import annotations

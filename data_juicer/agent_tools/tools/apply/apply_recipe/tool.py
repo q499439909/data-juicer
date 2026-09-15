@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Tool spec for apply_recipe."""
 
 from __future__ import annotations

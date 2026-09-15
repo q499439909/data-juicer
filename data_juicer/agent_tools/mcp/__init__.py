@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MCP bindings for agent tool specifications."""
 
 from .server import (

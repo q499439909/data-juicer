@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """list_dataset_load_strategies tool package."""
 
 from .input import ListDatasetLoadStrategiesInput

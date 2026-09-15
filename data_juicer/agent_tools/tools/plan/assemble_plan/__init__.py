@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """assemble_plan tool package."""
 
 from .input import AssemblePlanInput

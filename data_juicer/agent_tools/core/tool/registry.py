@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Registry for runtime-agnostic tool definitions."""
 
 from __future__ import annotations

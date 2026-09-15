@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Shared normalization utilities for all spec types.
 
 These helpers are used by ``normalize_system_spec``,

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Input models for apply_recipe."""
 
 from __future__ import annotations

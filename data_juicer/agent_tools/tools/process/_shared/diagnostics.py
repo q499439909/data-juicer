@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Error diagnosis for shell command failures.
 
 Maps exit codes / stderr patterns / empty-stdout heuristics to a

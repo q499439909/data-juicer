@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """write_text_file tool package."""
 
 from .input import GenericOutput, WriteTextFileInput

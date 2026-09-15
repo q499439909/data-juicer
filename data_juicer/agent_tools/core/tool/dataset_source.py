@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Unified dataset source descriptor.
 
 Replaces the scattered ``dataset_path`` / ``dataset`` /

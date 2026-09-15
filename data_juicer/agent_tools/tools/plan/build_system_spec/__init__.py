@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """build_system_spec tool package."""
 
 from .input import BuildSystemSpecInput

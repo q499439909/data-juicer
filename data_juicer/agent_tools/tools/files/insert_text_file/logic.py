@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Pure logic for insert_text_file."""
 
 from __future__ import annotations

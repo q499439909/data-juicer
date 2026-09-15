@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """validate_process_spec tool package."""
 
 from .input import ValidateProcessSpecInput

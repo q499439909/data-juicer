@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Pure logic for plan_save."""
 
 from __future__ import annotations

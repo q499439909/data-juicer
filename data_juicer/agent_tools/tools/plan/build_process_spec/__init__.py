@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """build_process_spec tool package."""
 
 from .input import BuildProcessSpecInput, ProcessOperatorInput
