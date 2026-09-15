@@ -84,10 +84,11 @@ We have integrated [AgentScope](https://github.com/agentscope-ai/agentscope) to 
 
 ### Overview
 
-The Data-Juicer MCP server provides data processing operators to assist in tasks such as data cleaning, filtering, deduplication, and more. To accommodate different use cases, we offer two server options:
+The Data-Juicer MCP server provides data processing operators to assist in tasks such as data cleaning, filtering, deduplication, and more. To accommodate different use cases, we offer three server options:
 
 - Recipe-Flow: Allows filtering operators by type and tags, and supports combining multiple operators into a data recipe for execution.
 - Granular-Operators: Provides each operator as an independent tool, allowing you to flexibly specify a list of operators to use via environment variables, thus building a customized data processing pipeline.
+- Agent-Tools: Provides workflow-level tools (dataset inspection, operator retrieval, recipe planning and validation, operator development, recipe execution), so a general-purpose agent can drive the whole "inspect data -> retrieve operators -> build a plan -> validate -> run" loop.
 
 Please note that the Data-Juicer MCP server features and available tools may change and expand as we continue to develop and improve the server.
 
@@ -164,6 +165,45 @@ text_pair_similarity_filter
 ```
 3. Set the path to the operator list as the environment variable `DJ_OPS_LIST_PATH`.
 
+### Agent-Tools
+
+The Agent-Tools mode exposes the atomic tools in `data_juicer.agent_tools`, grouped as:
+
+- context: `inspect_dataset`, `list_dataset_fields`, `list_dataset_formatters`, `list_dataset_load_strategies`, `list_system_config`
+- retrieve: `retrieve_operators`, `retrieve_operators_api`, `get_operator_info`, `list_operator_catalog`
+- plan: `build_dataset_spec`, `build_process_spec`, `build_system_spec`, `validate_dataset_spec`, `validate_process_spec`, `validate_system_spec`, `assemble_plan`, `plan_validate`, `plan_save`
+- apply: `apply_recipe`, `submit_ray_job`
+- dev / files / process: `develop_operator`, `view_text_file`, `write_text_file`, `insert_text_file`, `execute_bash`, `execute_python_code`
+- media: `scan_media_folder`
+
+Each tool declares its arguments through a pydantic model, so the MCP schema carries
+per-argument types, constraints, and descriptions. Results are JSON objects with an
+`ok` flag; on failure they carry `error_type` and `error_message`. Tool effects are
+mapped to MCP annotations (`readOnlyHint` / `destructiveHint` / `openWorldHint`), and
+tools requiring confirmation say so in their description.
+
+The exposed tool set is controlled by environment variables:
+
+| Variable | Effect |
+|---|---|
+| `DJ_AGENT_TOOLS_WORKING_DIR` | Working / artifact directory for tool runs (default `./.djx`) |
+| `DJ_AGENT_TOOLS_PROFILE` | Tool profile, e.g. `default` or `harness` |
+| `DJ_AGENT_TOOLS_TAGS` | Comma-separated tag filter |
+| `DJ_AGENT_TOOLS_INCLUDE` | Comma-separated allow list of tool names |
+| `DJ_AGENT_TOOLS_EXCLUDE` | Comma-separated deny list of tool names |
+
+Operator retrieval through `retrieve_operators_api` and operator generation through
+`develop_operator` call an OpenAI-compatible LLM endpoint; set `DASHSCOPE_API_KEY` or
+`MODELSCOPE_API_TOKEN` (and optionally `DJA_OPENAI_BASE_URL`) for those tools. The
+other tools run fully locally.
+
+Start it with:
+
+```bash
+dj-mcp agent-tools --transport stdio
+dj-mcp agent-tools --transport streamable-http --port 8000
+```
+
 ### Configuration
 
 The following configuration examples demonstrate how to set up the two MCP server types using the stdio and SSE methods. These examples are for illustrative purposes only and should be adapted to the specific MCP client's configuration format.
@@ -215,6 +255,28 @@ Run the latest version of Data-Juicer MCP directly from the repository without m
   }
   ```
   Note: If `DJ_OPS_LIST_PATH` is not set, all operators are returned by default.
+
+- Agent-Tools mode:
+  ```json
+  {
+    "mcpServers": {
+      "DJ_agent_tools": {
+        "command": "uvx",
+        "args": [
+          "--from",
+          "git+https://github.com/datajuicer/data-juicer",
+          "dj-mcp",
+          "agent-tools",
+          "--transport",
+          "stdio"
+        ],
+        "env": {
+          "DJ_AGENT_TOOLS_WORKING_DIR": "/path/to/workspace"
+        }
+      }
+    }
+  }
+  ```
 
 ##### Local Installation
 

@@ -14,14 +14,18 @@ def main():
 Available modes:
   granular-ops    Launch MCP server with individual operator tools
   recipe-flow     Launch MCP server with recipe-based workflow tools
+  agent-tools     Launch MCP server with agent tools (inspect, retrieve, plan, apply)
 
 Examples:
   dj-mcp granular-ops --transport stdio
   dj-mcp recipe-flow --transport streamable-http --port 8000
+  dj-mcp agent-tools --transport stdio
         """,
     )
 
-    parser.add_argument("mode", choices=["granular-ops", "recipe-flow"], help="MCP server mode to launch")
+    parser.add_argument(
+        "mode", choices=["granular-ops", "recipe-flow", "agent-tools"], help="MCP server mode to launch"
+    )
 
     parser.add_argument(
         "--transport",
@@ -44,8 +48,13 @@ Examples:
         elif args.mode == "recipe-flow":
             from data_juicer.tools.DJ_mcp_recipe_flow import create_mcp_server
 
-        print(f"Starting Data-Juicer MCP Server ({args.mode} mode)")
-        print(f"Transport: {args.transport}, Port: {args.port}")
+        elif args.mode == "agent-tools":
+            from data_juicer.tools.DJ_mcp_agent_tools import create_mcp_server
+
+        # stdout is the JSON-RPC channel for the stdio transport, so status
+        # messages go to stderr.
+        print(f"Starting Data-Juicer MCP Server ({args.mode} mode)", file=sys.stderr)
+        print(f"Transport: {args.transport}, Port: {args.port}", file=sys.stderr)
 
         mcp = create_mcp_server(port=str(args.port))
         mcp.run(transport=args.transport)

@@ -84,10 +84,11 @@ curl -X POST \
 
 ### 概览
 
-Data-Juicer MCP 服务器提供数据处理算子，以协助完成数据清洗、过滤、去重等任务。为了适应不同的使用场景，我们提供两种服务器供选用：
+Data-Juicer MCP 服务器提供数据处理算子，以协助完成数据清洗、过滤、去重等任务。为了适应不同的使用场景，我们提供三种服务器供选用：
 
 - **Recipe-Flow（数据菜谱）**：允许根据算子的类型和标签进行筛选，并支持将多个算子组合成一个数据菜谱来运行。
 - **Granular-Operators（细粒度算子）**：将每个算子作为一个独立的工具提供，可以灵活地通过环境变量指定需要使用的算子列表，从而构建定制化的数据处理管道。
+- **Agent-Tools（智能体工具）**：提供工作流级别的工具（数据集诊断、算子检索、菜谱规划与校验、算子开发、菜谱执行），让通用智能体能完整走完“看数据 → 检索算子 → 生成 plan → 校验 → 执行”的闭环。
 
 请注意，Data-Juicer MCP 服务器的功能和可用工具可能会随着我们继续开发和改进服务器而发生变化和扩展。
 
@@ -165,6 +166,41 @@ text_pair_similarity_filter
 
 3. 将算子列表的路径设置为环境变量 `DJ_OPS_LIST_PATH`
 
+### Agent-Tools
+
+Agent-Tools 模式暴露 `data_juicer.agent_tools` 中的原子工具，分为以下几组：
+
+- context：`inspect_dataset`、`list_dataset_fields`、`list_dataset_formatters`、`list_dataset_load_strategies`、`list_system_config`
+- retrieve：`retrieve_operators`、`retrieve_operators_api`、`get_operator_info`、`list_operator_catalog`
+- plan：`build_dataset_spec`、`build_process_spec`、`build_system_spec`、`validate_dataset_spec`、`validate_process_spec`、`validate_system_spec`、`assemble_plan`、`plan_validate`、`plan_save`
+- apply：`apply_recipe`、`submit_ray_job`
+- dev / files / process：`develop_operator`、`view_text_file`、`write_text_file`、`insert_text_file`、`execute_bash`、`execute_python_code`
+- media：`scan_media_folder`
+
+每个工具的参数由 pydantic 模型声明，因此 MCP schema 中带有逐参数的类型、约束与描述。
+返回值是带 `ok` 标志的 JSON 对象，失败时包含 `error_type` 与 `error_message`。工具的副作用会
+映射为 MCP annotations（`readOnlyHint` / `destructiveHint` / `openWorldHint`），需要确认的工具会在描述中标明。
+
+暴露的工具集合通过环境变量控制：
+
+| 环境变量 | 作用 |
+|---|---|
+| `DJ_AGENT_TOOLS_WORKING_DIR` | 工具运行的工作 / 产物目录（默认 `./.djx`） |
+| `DJ_AGENT_TOOLS_PROFILE` | 工具 profile，如 `default`、`harness` |
+| `DJ_AGENT_TOOLS_TAGS` | 逗号分隔的标签筛选 |
+| `DJ_AGENT_TOOLS_INCLUDE` | 逗号分隔的工具白名单 |
+| `DJ_AGENT_TOOLS_EXCLUDE` | 逗号分隔的工具黑名单 |
+
+`retrieve_operators_api` 的算子检索和 `develop_operator` 的算子生成会调用 OpenAI 兼容接口，
+需要设置 `DASHSCOPE_API_KEY` 或 `MODELSCOPE_API_TOKEN`（可选 `DJA_OPENAI_BASE_URL`）；其余工具完全本地运行。
+
+启动方式：
+
+```bash
+dj-mcp agent-tools --transport stdio
+dj-mcp agent-tools --transport streamable-http --port 8000
+```
+
 ### 配置
 
 以下配置示例演示了如何使用 stdio 和 SSE 方法设置两种不同的 MCP 服务器。这些示例仅用于说明目的，应根据特定 MCP 客户端的配置格式进行调整。
@@ -216,6 +252,28 @@ text_pair_similarity_filter
   }
   ```
   注意：若不设置`DJ_OPS_LIST_PATH`，则默认返回所有算子。
+
+- **Agent-Tools模式**：
+  ```json
+  {
+    "mcpServers": {
+      "DJ_agent_tools": {
+        "command": "uvx",
+        "args": [
+          "--from",
+          "git+https://github.com/datajuicer/data-juicer",
+          "dj-mcp",
+          "agent-tools",
+          "--transport",
+          "stdio"
+        ],
+        "env": {
+          "DJ_AGENT_TOOLS_WORKING_DIR": "/path/to/workspace"
+        }
+      }
+    }
+  }
+  ```
 
 ##### 本地安装
 

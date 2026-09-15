@@ -1,0 +1,64 @@
+"""Tool spec for build_dataset_spec."""
+
+from __future__ import annotations
+
+from pydantic import BaseModel
+
+from data_juicer.agent_tools.core.tool import ToolContext, ToolResult, ToolSpec
+
+from .input import BuildDatasetSpecInput
+from .logic import build_dataset_spec
+
+
+class GenericOutput(BaseModel):
+    ok: bool = True
+
+
+def _build_dataset_spec(_ctx: ToolContext, args: BuildDatasetSpecInput) -> ToolResult:
+    result = build_dataset_spec(
+        user_intent=args.intent,
+        dataset_source=args.dataset_source,
+        export_path=args.export_path,
+        dataset_profile=args.dataset_profile,
+        modality_hint=args.modality_hint,
+        text_keys_hint=args.text_keys_hint,
+        image_key_hint=args.image_key_hint,
+        audio_key_hint=args.audio_key_hint,
+        video_key_hint=args.video_key_hint,
+        image_bytes_key_hint=args.image_bytes_key_hint,
+        **(args.model_extra or {}),
+    )
+    if result.get("ok"):
+        return ToolResult.success(summary=str(result.get("message", "dataset spec built")), data=result)
+    return ToolResult.failure(
+        summary=str(result.get("message", "dataset spec build failed")),
+        error_type=str(result.get("error_type", "build_dataset_spec_failed")),
+        error_message=str(result.get("error_message", "")).strip(),
+        data=result,
+    )
+
+
+BUILD_DATASET_SPEC = ToolSpec(
+    name="build_dataset_spec",
+    description=(
+        "Build a deterministic dataset spec from an explicit user intent and export_path. "
+        "Accepts a unified dataset_source with exactly one of: path (single local file shortcut), "
+        "config (structured load config for remote/multi-source/max_sample_num), or generated "
+        "(dynamic formatter config). "
+        "For advanced dataset options (e.g., export_type, export_shard_size, export_in_parallel, "
+        "load_dataset_kwargs, suffixes, modality special tokens), call list_dataset_fields first to "
+        "discover available parameters and their defaults. "
+        "For non-trivial dataset sources, call list_dataset_load_strategies first to discover "
+        "available types/sources. For dynamic dataset generation, call list_dataset_formatters first "
+        "to discover available formatter names and their parameters."
+    ),
+    input_model=BuildDatasetSpecInput,
+    output_model=GenericOutput,
+    executor=_build_dataset_spec,  # type: ignore[arg-type]
+    tags=("plan",),
+    effects="write",
+    confirmation="none",
+)
+
+
+__all__ = ["BUILD_DATASET_SPEC"]
