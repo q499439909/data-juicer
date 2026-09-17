@@ -35,9 +35,7 @@ def bind_api_operator(
         )
 
     base_url_configured = bool(
-        os.environ.get("OPENAI_BASE_URL")
-        or os.environ.get("OPENAI_API_URL")
-        or os.environ.get("DASHSCOPE_BASE_URL")
+        os.environ.get("OPENAI_BASE_URL") or os.environ.get("OPENAI_API_URL") or os.environ.get("DASHSCOPE_BASE_URL")
     )
     if not base_url_configured:
         warnings.append(

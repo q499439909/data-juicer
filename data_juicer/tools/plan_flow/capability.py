@@ -89,18 +89,21 @@ class LocalCapabilityCatalog:
                         f"Capability id already refers to different content: {descriptor.capability_id}",
                     )
                 return existing
-            write_json_atomic(path, {
-                "capability_id": descriptor.capability_id,
-                "operator_name": descriptor.operator_name,
-                "content_hash": descriptor.content_hash,
-                "backend": descriptor.backend,
-                "backend_ref": descriptor.backend_ref,
-                "base_image_id": descriptor.base_image_id,
-                "created_at": descriptor.created_at,
-                "source_hash": descriptor.source_hash,
-                "dependency_lock_hash": descriptor.dependency_lock_hash,
-                "model_refs": list(descriptor.model_refs),
-            })
+            write_json_atomic(
+                path,
+                {
+                    "capability_id": descriptor.capability_id,
+                    "operator_name": descriptor.operator_name,
+                    "content_hash": descriptor.content_hash,
+                    "backend": descriptor.backend,
+                    "backend_ref": descriptor.backend_ref,
+                    "base_image_id": descriptor.base_image_id,
+                    "created_at": descriptor.created_at,
+                    "source_hash": descriptor.source_hash,
+                    "dependency_lock_hash": descriptor.dependency_lock_hash,
+                    "model_refs": list(descriptor.model_refs),
+                },
+            )
         return descriptor
 
 
@@ -151,7 +154,9 @@ class CapabilityBuilder:
                     f"Capability inputs must be directories inside {self.fixture_root}: {candidate}",
                 )
             if any(path.is_symlink() for path in candidate.rglob("*")):
-                raise PlanFlowError("CAPABILITY_SOURCE_NOT_ALLOWED", f"Capability input contains a symlink: {candidate}")
+                raise PlanFlowError(
+                    "CAPABILITY_SOURCE_NOT_ALLOWED", f"Capability input contains a symlink: {candidate}"
+                )
         source_files = self._files(source)
         wheel_files = self._files(wheelhouse, suffix=".whl")
         if not source_files or not wheel_files:
@@ -241,10 +246,20 @@ class CapabilityBuilder:
             "from data_juicer.ops.base_op import OPERATORS;"
             f"assert OPERATORS.get({manifest['operator_name']!r}) is not None"
         )
-        self._run([
-            "docker", "run", "--rm", "--network", "none", "--entrypoint",
-            "/opt/dj-venv/bin/python", image_id, "-c", check,
-        ])
+        self._run(
+            [
+                "docker",
+                "run",
+                "--rm",
+                "--network",
+                "none",
+                "--entrypoint",
+                "/opt/dj-venv/bin/python",
+                image_id,
+                "-c",
+                check,
+            ]
+        )
         descriptor = CapabilityDescriptor(
             capability_id=manifest["capability_id"],
             operator_name=manifest["operator_name"],
@@ -330,10 +345,7 @@ class CapabilityBuilder:
 
     @staticmethod
     def _manifest(root: Path, files: list[Path]) -> list[dict[str, str]]:
-        return [
-            {"path": path.relative_to(root).as_posix(), "sha256": sha256_file(path)}
-            for path in files
-        ]
+        return [{"path": path.relative_to(root).as_posix(), "sha256": sha256_file(path)} for path in files]
 
 
 def _require_identifier(value: str, label: str) -> None:

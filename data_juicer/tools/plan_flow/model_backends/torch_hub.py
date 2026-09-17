@@ -43,8 +43,13 @@ class TorchHubModelBackend(HuggingFaceModelBackend):
             temporary = Path(tempfile.mkdtemp(prefix=".git-", dir=target.parent))
             try:
                 subprocess.run(["git", "init", "-q", str(temporary)], check=True)
-                subprocess.run(["git", "-C", str(temporary), "remote", "add", "origin", binding["repository_url"]], check=True)
-                subprocess.run(["git", "-C", str(temporary), "fetch", "-q", "--depth", "1", "origin", binding["revision"]], check=True)
+                subprocess.run(
+                    ["git", "-C", str(temporary), "remote", "add", "origin", binding["repository_url"]], check=True
+                )
+                subprocess.run(
+                    ["git", "-C", str(temporary), "fetch", "-q", "--depth", "1", "origin", binding["revision"]],
+                    check=True,
+                )
                 subprocess.run(["git", "-C", str(temporary), "checkout", "-q", "--detach", "FETCH_HEAD"], check=True)
                 shutil.rmtree(temporary / ".git", ignore_errors=True)
                 self.verify(binding, temporary)
@@ -52,7 +57,9 @@ class TorchHubModelBackend(HuggingFaceModelBackend):
             except Exception as exc:
                 if isinstance(exc, PlanFlowError):
                     raise
-                raise PlanFlowError("MODEL_DOWNLOAD_BLOCKED", f"Could not fetch locked Torch Hub repository: {exc}") from exc
+                raise PlanFlowError(
+                    "MODEL_DOWNLOAD_BLOCKED", f"Could not fetch locked Torch Hub repository: {exc}"
+                ) from exc
             finally:
                 shutil.rmtree(temporary, ignore_errors=True)
         return target.resolve()

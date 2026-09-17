@@ -2,21 +2,11 @@
 
 from __future__ import annotations
 
-import csv
 import inspect
 import json
-import uuid
 from functools import lru_cache
 from typing import Any
 
-from .common import (
-    PlanFlowError,
-    is_within,
-    require_workspace,
-    resolve_workspace_path,
-    sha256_file,
-    write_json_atomic,
-)
 from .localization import localize_catalog_item, localize_detail
 
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".bmp", ".gif", ".webp", ".tif", ".tiff"}
@@ -111,11 +101,11 @@ def operator_catalog() -> dict[str, Any]:
         operators.append(
             localize_catalog_item(
                 {
-                "name": record.name,
-                "description": record.desc.strip(),
-                "category": str(record.type or "").strip() or "unknown",
-                "modalities": modalities,
-                "devices": devices,
+                    "name": record.name,
+                    "description": record.desc.strip(),
+                    "category": str(record.type or "").strip() or "unknown",
+                    "modalities": modalities,
+                    "devices": devices,
                 }
             )
         )
@@ -132,7 +122,9 @@ def operator_catalog() -> dict[str, Any]:
         "facets": {
             "categories": sorted({item["category"] for item in operators}),
             "modalities": [
-                name for name in (*_CATALOG_MODALITIES, "general") if any(name in item["modalities"] for item in operators)
+                name
+                for name in (*_CATALOG_MODALITIES, "general")
+                if any(name in item["modalities"] for item in operators)
             ],
             "devices": [
                 name for name in (*_CATALOG_DEVICES, "unknown") if any(name in item["devices"] for item in operators)
@@ -171,7 +163,7 @@ def operator_detail(name: str) -> dict[str, Any]:
 def _search_tags(modality: str | None) -> list[str] | None:
     if modality not in _SEARCH_MODALITIES:
         return None
-    if modality == 'multimodal':
+    if modality == "multimodal":
         # A pipeline over a multimodal record can use single-modality operators.
         # Restricting to the multimodal tag hid all ordinary image scorers.
         return sorted(_SEARCH_MODALITIES)
@@ -223,6 +215,7 @@ def search_capabilities(
                 compact["matched_requirements"] = [query]
                 unique_operators[query] = compact
         from .score_contracts import search_behaviors
+
         for name in search_behaviors(query):
             record = operator_record(name)
             if record is None or name in seen or len(candidate_names) >= limit:
@@ -231,13 +224,21 @@ def search_capabilities(
                 continue
             candidate_names.append(name)
             seen.add(name)
-            retrieval.append({'name':name,'method':'measured_behavior_contract','raw_score':None,'rank':len(candidate_names),'exact':False})
+            retrieval.append(
+                {
+                    "name": name,
+                    "method": "measured_behavior_contract",
+                    "raw_score": None,
+                    "rank": len(candidate_names),
+                    "exact": False,
+                }
+            )
             if name not in unique_operators:
-                compact=_compact_candidate(record,1.0)
-                compact['matched_requirements']=[query]
-                unique_operators[name]=compact
+                compact = _compact_candidate(record, 1.0)
+                compact["matched_requirements"] = [query]
+                unique_operators[name] = compact
             else:
-                unique_operators[name]['matched_requirements'].append(query)
+                unique_operators[name]["matched_requirements"].append(query)
         matches = searcher.search_by_bm25(
             query=query,
             fields=["name", "desc", "param_desc", "sig"],
@@ -254,7 +255,15 @@ def search_capabilities(
             record = operator_record(match["name"])
             if record is not None:
                 candidate_names.append(record.name)
-                retrieval.append({"name": record.name, "method": "bm25", "raw_score": float(match.get("score", 0)), "rank": len(candidate_names), "exact": False})
+                retrieval.append(
+                    {
+                        "name": record.name,
+                        "method": "bm25",
+                        "raw_score": float(match.get("score", 0)),
+                        "rank": len(candidate_names),
+                        "exact": False,
+                    }
+                )
                 seen.add(record.name)
                 if record.name in unique_operators:
                     unique_operators[record.name]["matched_requirements"].append(query)
@@ -289,4 +298,5 @@ def search_capabilities(
 
 def inspect_input(workspace_root: str, input: dict[str, Any], sample_size: int = 20) -> dict[str, Any]:
     from .input_profile import inspect_input as profile_input
+
     return profile_input(workspace_root, input, sample_size)

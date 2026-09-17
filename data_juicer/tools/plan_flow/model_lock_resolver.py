@@ -12,14 +12,13 @@ from typing import Any
 
 from .common import PlanFlowError, canonical_json, now_iso, sha256_file
 from .model_backends import (
-    HuggingFaceModelBackend,
     HttpFileModelBackend,
+    HuggingFaceModelBackend,
     LocalFileModelBackend,
     ModelScopeModelBackend,
     PythonDistributionModelBackend,
     TorchHubModelBackend,
 )
-
 
 _REVISION = re.compile(r"[a-fA-F0-9]{40,64}")
 _SHA256 = re.compile(r"[a-f0-9]{64}")
@@ -62,7 +61,9 @@ def load_builtin_model_catalog(path: str | Path | None = None) -> dict[str, Any]
         if not isinstance(requirement.get("when", {}), dict):
             raise PlanFlowError("MODEL_LOCK_MISSING", "Invalid blocked model requirement condition")
         defaults = requirement.get("defaults")
-        if defaults is not None and (not requirement.get("parameter") or not isinstance(defaults, list) or not defaults):
+        if defaults is not None and (
+            not requirement.get("parameter") or not isinstance(defaults, list) or not defaults
+        ):
             raise PlanFlowError("MODEL_LOCK_MISSING", "Invalid blocked model requirement defaults")
     for requirement in value.get("exempt_requirements", []):
         model_types = requirement.get("model_types")
@@ -182,7 +183,11 @@ class ModelLockResolver:
             for match in catalog_matches:
                 grouped.setdefault(match[1].get("parameter"), []).append(match)
             for parameter, alternatives in grouped.items():
-                explicit = params.get(parameter, alternatives[0][1]["defaults"][0]) if parameter else alternatives[0][1]["defaults"][0]
+                explicit = (
+                    params.get(parameter, alternatives[0][1]["defaults"][0])
+                    if parameter
+                    else alternatives[0][1]["defaults"][0]
+                )
                 selected = [(model, consumer) for model, consumer in alternatives if explicit in consumer["defaults"]]
                 if len(selected) != 1:
                     raise PlanFlowError(
@@ -308,9 +313,13 @@ class ModelLockResolver:
                     try:
                         materialized_path.relative_to(path.resolve())
                     except ValueError as exc:
-                        raise PlanFlowError("MODEL_PATH_FORBIDDEN", "Consumer model subpath escaped its snapshot") from exc
+                        raise PlanFlowError(
+                            "MODEL_PATH_FORBIDDEN", "Consumer model subpath escaped its snapshot"
+                        ) from exc
                     if not materialized_path.exists():
-                        raise PlanFlowError("MODEL_FILE_MISSING", f"Consumer model path is missing: {materialized_path}")
+                        raise PlanFlowError(
+                            "MODEL_FILE_MISSING", f"Consumer model path is missing: {materialized_path}"
+                        )
                 params[consumer["parameter"]] = str(materialized_path)
             records.append(
                 {
@@ -350,21 +359,20 @@ class ModelLockResolver:
             if not re.fullmatch(r"[a-fA-F0-9]{40,64}", revision):
                 raise PlanFlowError("MODEL_REVISION_REQUIRED", "Custom model revision must be an immutable commit")
             stable = {
-                "lock_id": backend[:2] + "-" + hashlib.sha256(f"{ref['model_id']}@{revision}".encode()).hexdigest()[:20],
+                "lock_id": backend[:2]
+                + "-"
+                + hashlib.sha256(f"{ref['model_id']}@{revision}".encode()).hexdigest()[:20],
                 "backend": backend,
                 "model_id": ref["model_id"],
                 "revision": revision,
                 "files": copy.deepcopy(ref.get("files", [])),
-                "runtime_packages": ["huggingface-hub", "torch", "transformers"]
-                if backend == "huggingface"
-                else ["modelscope"],
+                "runtime_packages": (
+                    ["huggingface-hub", "torch", "transformers"] if backend == "huggingface" else ["modelscope"]
+                ),
             }
             runtime = {}
         elif ref.get("backend") == "http-file":
-            stable = {
-                key: copy.deepcopy(ref[key])
-                for key in ("backend", "url", "filename", "size", "sha256")
-            }
+            stable = {key: copy.deepcopy(ref[key]) for key in ("backend", "url", "filename", "size", "sha256")}
             stable["sha256"] = str(stable["sha256"]).removeprefix("sha256:")
             stable["lock_id"] = "http-" + stable["sha256"][:20]
             runtime = {}

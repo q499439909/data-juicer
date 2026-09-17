@@ -113,7 +113,9 @@ class VideoHandReconstructionMapper(Mapper):
 
         wilor_repo_path = os.path.join(DATA_JUICER_ASSETS_CACHE, "WiLoR")
         if not os.path.exists(wilor_repo_path):
-            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+            from data_juicer.utils.lazy_loader import (
+                ensure_runtime_installation_allowed,
+            )
 
             ensure_runtime_installation_allowed("clone an unpinned WiLoR repository")
             subprocess.run(["git", "clone", "https://github.com/rolpotamias/WiLoR.git", wilor_repo_path], check=True)

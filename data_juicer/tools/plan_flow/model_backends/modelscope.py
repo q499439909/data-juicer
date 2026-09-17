@@ -33,9 +33,7 @@ class ModelScopeModelBackend(HuggingFaceModelBackend):
         try:
             from modelscope.hub.snapshot_download import snapshot_download
         except ImportError as exc:
-            raise PlanFlowError(
-                "MODEL_DOWNLOAD_BLOCKED", "modelscope must already be installed from uv.lock"
-            ) from exc
+            raise PlanFlowError("MODEL_DOWNLOAD_BLOCKED", "modelscope must already be installed from uv.lock") from exc
         try:
             path = Path(snapshot_download(binding["model_id"], revision=binding["revision"])).resolve()
         except Exception as exc:

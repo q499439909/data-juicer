@@ -1,7 +1,6 @@
 """Local subprocess adapter for the execution backend seam."""
 
 from __future__ import annotations
-from filelock import FileLock
 
 import os
 import re
@@ -13,7 +12,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..common import PlanFlowError, is_within, read_json, require_workspace, write_json_atomic
+from ..common import (
+    PlanFlowError,
+    is_within,
+    read_json,
+    require_workspace,
+    write_json_atomic,
+)
 from .spec import RunHandle, RunResult, RunStatus, RuntimeSpec
 
 _BACKEND_REF = re.compile(r"[0-9a-f]{32}\Z")
@@ -71,7 +76,10 @@ class LocalProcessBackend:
         ]
         environment = os.environ.copy()
         for key in list(environment):
-            if key.startswith(('DSH_AUTH', 'LANGFUSE_')) or key in {'DSH_DJ_INTERNAL_TOKEN', 'DSH_REGISTRATION_INVITE_HASH'}:
+            if key.startswith(("DSH_AUTH", "LANGFUSE_")) or key in {
+                "DSH_DJ_INTERNAL_TOKEN",
+                "DSH_REGISTRATION_INVITE_HASH",
+            }:
                 environment.pop(key)
         source_root = str(Path(__file__).resolve().parents[4])
         environment["PYTHONPATH"] = source_root + os.pathsep + environment.get("PYTHONPATH", "")
@@ -114,12 +122,24 @@ class LocalProcessBackend:
         # A detached watchdog enforces deadlines even when the host/UI stops polling.
         try:
             subprocess.Popen(
-                [sys.executable, '-X', 'utf8', '-m', 'data_juicer.tools.plan_flow.execution.supervisor', str(record_path)],
-                cwd=spec.workspace_root, env=environment, stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags,
+                [
+                    sys.executable,
+                    "-X",
+                    "utf8",
+                    "-m",
+                    "data_juicer.tools.plan_flow.execution.supervisor",
+                    str(record_path),
+                ],
+                cwd=spec.workspace_root,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=flags,
             )
         except Exception:
             from .supervisor import terminate_tree
+
             terminate_tree(record)
             raise
         return RunHandle(
@@ -142,6 +162,7 @@ class LocalProcessBackend:
         if self._same_process(record):
             if handle.deadline and _now() >= handle.deadline:
                 from .supervisor import stop_record
+
                 stop_record(self._record_path(handle.backend_ref), timeout=True)
                 return RunStatus("failed", _now(), "Run deadline exceeded")
             return RunStatus("running", _now())
@@ -150,6 +171,7 @@ class LocalProcessBackend:
     def cancel(self, handle: RunHandle) -> None:
         self._load_record(handle)
         from .supervisor import stop_record
+
         stop_record(self._record_path(handle.backend_ref))
 
     def collect(self, handle: RunHandle) -> RunResult:
@@ -205,9 +227,7 @@ class LocalProcessBackend:
 
     def _validate_handle(self, handle: RunHandle) -> None:
         if handle.backend != self.name:
-            raise PlanFlowError(
-                "BACKEND_MISMATCH", f"Handle belongs to {handle.backend}, not {self.name}"
-            )
+            raise PlanFlowError("BACKEND_MISMATCH", f"Handle belongs to {handle.backend}, not {self.name}")
         self._record_path(handle.backend_ref)
 
     def _load_record(self, handle: RunHandle, *, missing_ok: bool = False) -> dict[str, Any] | None:

@@ -14,7 +14,15 @@ from .capability_schema import (
     OperatorArtifact,
     OperatorArtifactCatalog,
 )
-from .common import FileLock, PlanFlowError, canonical_json, now_iso, read_json, sha256_bytes, write_json_atomic
+from .common import (
+    FileLock,
+    PlanFlowError,
+    canonical_json,
+    now_iso,
+    read_json,
+    sha256_bytes,
+    write_json_atomic,
+)
 
 
 @dataclass(frozen=True)

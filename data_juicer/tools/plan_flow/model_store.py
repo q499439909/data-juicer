@@ -11,7 +11,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .common import FileLock, PlanFlowError, is_within, now_iso, read_yaml, sha256_file, write_json_atomic
+from .common import (
+    FileLock,
+    PlanFlowError,
+    is_within,
+    now_iso,
+    read_yaml,
+    sha256_file,
+    write_json_atomic,
+)
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -153,11 +161,7 @@ class LocalModelInstaller:
             resolved = source.resolve(strict=True)
         except OSError as exc:
             raise PlanFlowError("MODEL_SOURCE_NOT_FOUND", f"Model source is unavailable: {source}") from exc
-        if (
-            not is_within(resolved, self.allowed_source_root)
-            or source.absolute().is_symlink()
-            or not resolved.is_dir()
-        ):
+        if not is_within(resolved, self.allowed_source_root) or source.absolute().is_symlink() or not resolved.is_dir():
             raise PlanFlowError("MODEL_SOURCE_NOT_ALLOWED", "Installer source must be a real directory under fixtures")
         for child in resolved.rglob("*"):
             if child.is_symlink():

@@ -1,10 +1,13 @@
 """Bounded subprocess for personal operator model preparation."""
+
 import sys
 from pathlib import Path
-from .common import read_json, write_json_atomic, sha256_file
+
+from .common import read_json, sha256_file, write_json_atomic
+
 
 def prepare(temp):
-    manifest = read_json(temp / 'model-request.json')
+    manifest = read_json(temp / "model-request.json")
     from .model_lock_resolver import ModelLockResolver
 
     request = read_json(temp / "request.json")
@@ -21,8 +24,7 @@ def prepare(temp):
         binding = next(
             item
             for item in bindings
-            if item.get("model_id") == ref.get("model_id")
-            and item.get("revision") == ref.get("revision")
+            if item.get("model_id") == ref.get("model_id") and item.get("revision") == ref.get("revision")
         )
         snapshot = paths[binding["binding_id"]]
         ref["files"] = [
@@ -44,8 +46,8 @@ def prepare(temp):
     write_json_atomic(temp / "request.json", request)
     write_json_atomic(temp / "resolved-models.json", provenance)
 
+    write_json_atomic(temp / "model-result.json", manifest)
 
-    write_json_atomic(temp / 'model-result.json', manifest)
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     prepare(Path(sys.argv[1]))

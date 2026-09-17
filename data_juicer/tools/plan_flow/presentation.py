@@ -103,25 +103,35 @@ def build_plan_view(
                         )
                     )
             normalized.sort(key=lambda item: item[0])
-            groups = [
-                {"id": f"stage-{index + 1:03d}", **group}
-                for index, (_, group) in enumerate(normalized)
-            ]
+            groups = [{"id": f"stage-{index + 1:03d}", **group} for index, (_, group) in enumerate(normalized)]
         except ValueError as exc:
             warnings.append(str(exc))
 
-    audit = any(s.get('kind')=='image_audit' for s in plan.get('postprocess',[]))
+    audit = any(s.get("kind") == "image_audit" for s in plan.get("postprocess", []))
     for step in steps:
-        step['phase']='recipe'
-        step['mode']='score_only' if audit else 'process'
-    for index, item in enumerate(plan.get('postprocess',[])):
-        name=item.get('kind','python')
-        node={'id':f'postprocess-{index:03d}','process_index':len(process)+index,'postprocess_index':index,
-              'phase':'postprocess','operator_name':name,'execution_key':f'postprocess_{index+1}',
-              'implementation':{'kind':name},'configuration':item}
+        step["phase"] = "recipe"
+        step["mode"] = "score_only" if audit else "process"
+    for index, item in enumerate(plan.get("postprocess", [])):
+        name = item.get("kind", "python")
+        node = {
+            "id": f"postprocess-{index:03d}",
+            "process_index": len(process) + index,
+            "postprocess_index": index,
+            "phase": "postprocess",
+            "operator_name": name,
+            "execution_key": f"postprocess_{index+1}",
+            "implementation": {"kind": name},
+            "configuration": item,
+        }
         steps.append(node)
-        groups.append({'id':f'postprocess-stage-{index:03d}','title':'判定 / 报告 / 交付' if name=='image_audit' else '受控后处理',
-                       'summary':item.get('audit_mode',''),'step_refs':[node['id']]})
+        groups.append(
+            {
+                "id": f"postprocess-stage-{index:03d}",
+                "title": "判定 / 报告 / 交付" if name == "image_audit" else "受控后处理",
+                "summary": item.get("audit_mode", ""),
+                "step_refs": [node["id"]],
+            }
+        )
     return (
         {
             "schema_version": "1.0",

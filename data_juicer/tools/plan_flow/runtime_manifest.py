@@ -8,7 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from .capability_schema import ArtifactRef
-from .common import FileLock, PlanFlowError, canonical_json, now_iso, read_json, sha256_bytes, write_json_atomic
+from .common import (
+    FileLock,
+    PlanFlowError,
+    canonical_json,
+    now_iso,
+    read_json,
+    sha256_bytes,
+    write_json_atomic,
+)
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _PROFILE = re.compile(r"[a-z][a-z0-9._-]{1,63}\Z")
@@ -119,9 +127,18 @@ class RuntimeManifest:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "RuntimeManifest":
         expected = {
-            "schema_version", "runtime_id", "content_hash", "base_image_id", "data_juicer_identity",
-            "operator_artifacts", "dependency_lock_hash", "model_refs", "image_id", "bootstrap_version",
-            "profile_family", "created_at",
+            "schema_version",
+            "runtime_id",
+            "content_hash",
+            "base_image_id",
+            "data_juicer_identity",
+            "operator_artifacts",
+            "dependency_lock_hash",
+            "model_refs",
+            "image_id",
+            "bootstrap_version",
+            "profile_family",
+            "created_at",
         }
         if not isinstance(value, dict) or set(value) != expected or value.get("schema_version") != 1:
             raise PlanFlowError("INVALID_RUNTIME_MANIFEST", "RuntimeManifest fields do not match schema")
@@ -133,7 +150,9 @@ class RuntimeManifest:
             _hash(str(value["content_hash"]), "content_hash"),
             _hash(str(value["base_image_id"]), "base_image_id"),
             str(value["data_juicer_identity"]),
-            _normalize_refs(tuple(ArtifactRef.from_dict(item) for item in value["operator_artifacts"]), "operator_artifacts"),
+            _normalize_refs(
+                tuple(ArtifactRef.from_dict(item) for item in value["operator_artifacts"]), "operator_artifacts"
+            ),
             _hash(str(value["dependency_lock_hash"]), "dependency_lock_hash"),
             _normalize_refs(tuple(ArtifactRef.from_dict(item) for item in value["model_refs"]), "model_refs"),
             _hash(str(value["image_id"]), "image_id"),

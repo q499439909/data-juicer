@@ -94,7 +94,11 @@ class ExecutionBroker:
     ):
         self.workspace = require_workspace(workspace_root)
         self.worker_root = Path(worker_root).resolve()
-        if not self.worker_root.is_dir() or self.worker_root == self.workspace or is_within(self.worker_root, self.workspace):
+        if (
+            not self.worker_root.is_dir()
+            or self.worker_root == self.workspace
+            or is_within(self.worker_root, self.workspace)
+        ):
             raise PlanFlowError("INVALID_WORKER_ROOT", "Broker worker root must exist outside the workspace")
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", tenant_id):
             raise PlanFlowError("INVALID_TENANT", "Broker tenant_id contains unsupported characters")
@@ -166,8 +170,7 @@ class ExecutionBroker:
                 descriptor, profile, managed = matches[0]
                 self._validate_capability_models(descriptor, managed.task_id, managed.plan_version)
                 run_path = (
-                    PlanStore(self.workspace).task_path(managed.task_id)
-                    / "runs" / managed.handle.run_id / "run.json"
+                    PlanStore(self.workspace).task_path(managed.task_id) / "runs" / managed.handle.run_id / "run.json"
                 )
                 if not run_path.is_file():
                     continue
@@ -196,9 +199,7 @@ class ExecutionBroker:
                 adopted.append(public_run_id)
         return tuple(adopted)
 
-    def _validate_capability_models(
-        self, descriptor: CapabilityDescriptor, task_id: str, plan_version: str
-    ) -> None:
+    def _validate_capability_models(self, descriptor: CapabilityDescriptor, task_id: str, plan_version: str) -> None:
         plan = PlanStore(self.workspace).get_plan(task_id, plan_version)["plan"]
         raw_models = plan.get("models", [])
         declared = {
@@ -336,8 +337,7 @@ def create_broker_app(broker: ExecutionBroker) -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_request: Request, error: RequestValidationError):
         details = [
-            {"path": ".".join(str(item) for item in issue["loc"]), "type": issue["type"]}
-            for issue in error.errors()
+            {"path": ".".join(str(item) for item in issue["loc"]), "type": issue["type"]} for issue in error.errors()
         ]
         failure = PlanFlowError("INVALID_REQUEST", "Request fields do not match the broker interface", details=details)
         return JSONResponse(status_code=422, content=failure.to_dict())
@@ -447,10 +447,11 @@ def create_runtime_broker_app(broker: RuntimeExecutionBroker) -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def invalid_request(_request: Request, error: RequestValidationError):
         details = [
-            {"path": ".".join(str(item) for item in issue["loc"]), "type": issue["type"]}
-            for issue in error.errors()
+            {"path": ".".join(str(item) for item in issue["loc"]), "type": issue["type"]} for issue in error.errors()
         ]
-        failure = PlanFlowError("INVALID_REQUEST", "Request fields do not match the runtime broker interface", details=details)
+        failure = PlanFlowError(
+            "INVALID_REQUEST", "Request fields do not match the runtime broker interface", details=details
+        )
         return JSONResponse(status_code=422, content=failure.to_dict())
 
     @app.post("/v1/runs", status_code=201)

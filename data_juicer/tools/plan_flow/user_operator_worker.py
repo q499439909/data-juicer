@@ -13,6 +13,7 @@ def run(root):
     from data_juicer.config.config import load_custom_operators
     from data_juicer.ops import OPERATORS
     from data_juicer.tools.op_search import analyze_tag_from_cls
+
     from .discovery import _json_safe_value
 
     request = read_json(root / "request.json")
@@ -32,9 +33,9 @@ def run(root):
         if param.name == "self" or param.kind in {inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD}:
             continue
         parameters[param.name] = {
-            "type": "Any"
-            if param.annotation is inspect.Parameter.empty
-            else inspect.formatannotation(param.annotation),
+            "type": (
+                "Any" if param.annotation is inspect.Parameter.empty else inspect.formatannotation(param.annotation)
+            ),
             "required": param.default is inspect.Parameter.empty,
             "default": None if param.default is inspect.Parameter.empty else _json_safe_value(param.default),
             "description": "",
@@ -80,6 +81,7 @@ if __name__ == "__main__":
         else:
             import shutil
             import time
+
             from .common import read_yaml
             from .runner import PlanRunner
 

@@ -11,7 +11,14 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .common import PlanFlowError, is_within, read_json, read_yaml, require_workspace, sha256_file
+from .common import (
+    PlanFlowError,
+    is_within,
+    read_json,
+    read_yaml,
+    require_workspace,
+    sha256_file,
+)
 from .store import PlanStore
 
 
@@ -81,7 +88,14 @@ class RunOutputGateway:
             "planVersion": str(plan_version),
             "internalRunId": str(result_ref),
             "title": title,
-            "status": "available" if state.get("status") == "succeeded" and not degraded and state.get("delivery_status", "passed") == "passed" and state.get("acceptance_status", "passed") == "passed" else "partial",
+            "status": (
+                "available"
+                if state.get("status") == "succeeded"
+                and not degraded
+                and state.get("delivery_status", "passed") == "passed"
+                and state.get("acceptance_status", "passed") == "passed"
+                else "partial"
+            ),
             "createdAt": state.get("created_at"),
             "completedAt": state.get("updated_at") or manifest.get("finished_at"),
             "manifestHash": sha256_file(manifest_path),
@@ -172,7 +186,9 @@ class RunOutputGateway:
                     for item in selected:
                         source = context["output_root"] / item["relative"]
                         if source.is_symlink() or not source.is_file() or not is_within(source, context["output_root"]):
-                            raise PlanFlowError("RESULT_INTEGRITY_FAILED", "Result asset changed while creating the archive")
+                            raise PlanFlowError(
+                                "RESULT_INTEGRITY_FAILED", "Result asset changed while creating the archive"
+                            )
                         archive.write(source, item["relative"])
                 os.replace(temporary, target)
             finally:
@@ -281,41 +297,51 @@ class RunOutputGateway:
             }
         for document in view.get("documents", []):
             relative = str(document.get("asset_path", "")).replace("\\", "/")
-            semantics.setdefault(relative, {
-                "itemId": _asset_id(relative),
-                "sampleId": None,
-                "variant": None,
-                "variantLabel": None,
-                "name": inventory[relative]["name"],
-                "mediaType": "application/x-ndjson" if document.get("kind") == "jsonl" else inventory[relative]["mediaType"],
-                "labels": [],
-                "metrics": {},
-            })
+            semantics.setdefault(
+                relative,
+                {
+                    "itemId": _asset_id(relative),
+                    "sampleId": None,
+                    "variant": None,
+                    "variantLabel": None,
+                    "name": inventory[relative]["name"],
+                    "mediaType": (
+                        "application/x-ndjson" if document.get("kind") == "jsonl" else inventory[relative]["mediaType"]
+                    ),
+                    "labels": [],
+                    "metrics": {},
+                },
+            )
         result = []
         for relative, item in inventory.items():
-            semantic = semantics.get(relative, {
-                "itemId": item["assetId"],
-                "sampleId": None,
-                "variant": None,
-                "variantLabel": None,
-                "name": item["name"],
-                "mediaType": item["mediaType"],
-                "labels": [],
-                "metrics": {},
-            })
-            result.append({
-                "assetId": item["assetId"],
-                "itemId": semantic["itemId"],
-                "sampleId": semantic["sampleId"],
-                "variant": semantic["variant"],
-                "variantLabel": semantic["variantLabel"],
-                "name": semantic["name"],
-                "mediaType": semantic["mediaType"],
-                "size": item["size"],
-                "sha256": item["sha256"],
-                "labels": semantic["labels"],
-                "metrics": semantic["metrics"],
-            })
+            semantic = semantics.get(
+                relative,
+                {
+                    "itemId": item["assetId"],
+                    "sampleId": None,
+                    "variant": None,
+                    "variantLabel": None,
+                    "name": item["name"],
+                    "mediaType": item["mediaType"],
+                    "labels": [],
+                    "metrics": {},
+                },
+            )
+            result.append(
+                {
+                    "assetId": item["assetId"],
+                    "itemId": semantic["itemId"],
+                    "sampleId": semantic["sampleId"],
+                    "variant": semantic["variant"],
+                    "variantLabel": semantic["variantLabel"],
+                    "name": semantic["name"],
+                    "mediaType": semantic["mediaType"],
+                    "size": item["size"],
+                    "sha256": item["sha256"],
+                    "labels": semantic["labels"],
+                    "metrics": semantic["metrics"],
+                }
+            )
         return result
 
     @staticmethod

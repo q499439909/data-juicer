@@ -10,7 +10,14 @@ from pathlib import Path, PurePosixPath
 from typing import Callable
 from urllib.parse import quote, urlparse
 
-from .common import FileLock, PlanFlowError, is_within, now_iso, sha256_file, write_json_atomic
+from .common import (
+    FileLock,
+    PlanFlowError,
+    is_within,
+    now_iso,
+    sha256_file,
+    write_json_atomic,
+)
 
 _IDENTIFIER = re.compile(r"[a-z][a-z0-9._-]{2,127}\Z")
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -25,8 +32,17 @@ _REMOTE_HOSTS = {
     "files.pythonhosted.org",
 }
 _SAFE_MODEL_SUFFIXES = {
-    ".json", ".md", ".onnx", ".safetensors", ".txt", ".yaml", ".yml",
-    ".model", ".tflite", ".xml", ".data",
+    ".json",
+    ".md",
+    ".onnx",
+    ".safetensors",
+    ".txt",
+    ".yaml",
+    ".yml",
+    ".model",
+    ".tflite",
+    ".xml",
+    ".data",
 }
 _SAFE_OPERATOR_SUFFIXES = {".py", ".pyi", ".toml", ".txt", ".whl", ".json", ".md"}
 
@@ -123,7 +139,9 @@ class ArtifactFetcher:
                     if local_source is not None:
                         source = (local_source / relative).resolve()
                         if not is_within(source, local_source) or not source.is_file() or source.is_symlink():
-                            raise PlanFlowError("ARTIFACT_SOURCE_MISSING", f"Requested artifact file is unavailable: {relative}")
+                            raise PlanFlowError(
+                                "ARTIFACT_SOURCE_MISSING", f"Requested artifact file is unavailable: {relative}"
+                            )
                         shutil.copy2(source, target)
                     else:
                         self.downloader(request, relative, target)
@@ -184,4 +202,6 @@ class ArtifactFetcher:
             with urllib.request.urlopen(url, timeout=60) as response, target.open("wb") as output:
                 shutil.copyfileobj(response, output, length=1024 * 1024)
         except Exception as exc:
-            raise PlanFlowError("ARTIFACT_DOWNLOAD_FAILED", f"Could not fetch approved artifact file: {relative}") from exc
+            raise PlanFlowError(
+                "ARTIFACT_DOWNLOAD_FAILED", f"Could not fetch approved artifact file: {relative}"
+            ) from exc

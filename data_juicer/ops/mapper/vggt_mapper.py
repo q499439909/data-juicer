@@ -105,7 +105,9 @@ class VggtMapper(Mapper):
 
         vggt_repo_path = os.path.join(DATA_JUICER_ASSETS_CACHE, "vggt")
         if not os.path.exists(vggt_repo_path):
-            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+            from data_juicer.utils.lazy_loader import (
+                ensure_runtime_installation_allowed,
+            )
 
             ensure_runtime_installation_allowed("clone an unpinned VGGT repository")
             subprocess.run(["git", "clone", "https://github.com/facebookresearch/vggt.git", vggt_repo_path], check=True)

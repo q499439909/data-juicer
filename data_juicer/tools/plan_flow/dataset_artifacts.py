@@ -8,11 +8,31 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .common import PlanFlowError, canonical_json, is_within, sha256_bytes, sha256_file, write_json_atomic
+from .common import (
+    PlanFlowError,
+    canonical_json,
+    is_within,
+    sha256_bytes,
+    sha256_file,
+    write_json_atomic,
+)
 
 _MEDIA_SUFFIXES = {
-    ".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff", ".gif",
-    ".mp3", ".wav", ".flac", ".mp4", ".mov", ".avi", ".mkv",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".bmp",
+    ".tif",
+    ".tiff",
+    ".gif",
+    ".mp3",
+    ".wav",
+    ".flac",
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mkv",
 }
 _OUTPUT_MANIFEST = "_output-manifest.json"
 
@@ -85,23 +105,27 @@ class DatasetSnapshotter:
                 shutil.copy2(resolved, target)
             container_path = f"{container_root.rstrip('/')}/media/{target_name}"
             copied[resolved] = container_path
-            inventory.append({
-                "source_name": resolved.name,
-                "container_path": container_path,
-                "sha256": digest,
-                "size_bytes": size,
-            })
+            inventory.append(
+                {
+                    "source_name": resolved.name,
+                    "container_path": container_path,
+                    "sha256": digest,
+                    "size_bytes": size,
+                }
+            )
             return container_path
 
         if source_path.is_dir():
             files = sorted(
-                item for item in source_path.rglob("*")
-                if item.is_file() and item.suffix.casefold() in _MEDIA_SUFFIXES
+                item for item in source_path.rglob("*") if item.is_file() and item.suffix.casefold() in _MEDIA_SUFFIXES
             )
             if not files:
                 raise PlanFlowError("INPUT_EMPTY", "Input directory contains no supported media")
             records = [
-                {"source_id": item.relative_to(source_path).as_posix(), "images": [snapshot_file(item, relative_to=source_path)]}
+                {
+                    "source_id": item.relative_to(source_path).as_posix(),
+                    "images": [snapshot_file(item, relative_to=source_path)],
+                }
                 for item in files
             ]
         elif source_path.is_file() and source_path.suffix.casefold() == ".jsonl":
@@ -149,7 +173,6 @@ class DatasetSnapshotter:
             return [DatasetSnapshotter._rewrite_record(item, base, snapshot_file) for item in value]
         if isinstance(value, str):
             candidate = Path(value)
-            resolved = candidate if candidate.is_absolute() else base / candidate
             if candidate.suffix.casefold() in _MEDIA_SUFFIXES:
                 return snapshot_file(value, relative_to=base)
         return value
@@ -179,11 +202,13 @@ class OutputArtifactCollector:
             total += size
             if total > self.max_total_bytes:
                 raise PlanFlowError("OUTPUT_TOO_LARGE", "Output exceeds the approved byte limit")
-            files.append({
-                "path": path.relative_to(root).as_posix(),
-                "sha256": sha256_file(path),
-                "size_bytes": size,
-            })
+            files.append(
+                {
+                    "path": path.relative_to(root).as_posix(),
+                    "sha256": sha256_file(path),
+                    "size_bytes": size,
+                }
+            )
         manifest = {
             "schema_version": 1,
             "total_bytes": total,

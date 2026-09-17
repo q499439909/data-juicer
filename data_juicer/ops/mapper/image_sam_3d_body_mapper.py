@@ -80,7 +80,9 @@ class ImageSAM3DBodyMapper(Mapper):
 
         sam_3d_body_repo_path = os.path.join(DATA_JUICER_ASSETS_CACHE, "sam-3d-body")
         if not os.path.exists(sam_3d_body_repo_path):
-            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+            from data_juicer.utils.lazy_loader import (
+                ensure_runtime_installation_allowed,
+            )
 
             ensure_runtime_installation_allowed("clone an unpinned SAM-3D-Body repository")
             logger.info("Cloning SAM 3D Body repo...")
@@ -157,7 +159,9 @@ class ImageSAM3DBodyMapper(Mapper):
         try:
             importlib.import_module("detectron2")
         except ImportError:
-            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+            from data_juicer.utils.lazy_loader import (
+                ensure_runtime_installation_allowed,
+            )
 
             ensure_runtime_installation_allowed("install detectron2")
             logger.info("Installing detectron2...")
@@ -179,7 +183,9 @@ class ImageSAM3DBodyMapper(Mapper):
             try:
                 importlib.import_module("moge")
             except ImportError:
-                from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+                from data_juicer.utils.lazy_loader import (
+                    ensure_runtime_installation_allowed,
+                )
 
                 ensure_runtime_installation_allowed("install MoGe")
                 logger.info("Installing MoGe...")

@@ -8,10 +8,10 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 import time
 import uuid
-import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -60,33 +60,46 @@ class UserOperatorValidation:
 
     def develop(self, proposal, samples, parameters=None, timeout_seconds=180, request_id=None, task_id=None):
         store = UserOperatorStore()
-        payload_hash = digest({'proposal':proposal, 'samples':samples, 'parameters':parameters, 'timeout':timeout_seconds})
-        with FileLock(store.home / '.develop.lock'):
-            requests = store.home / 'operator_requests'
-            request_path = requests / (digest(str(request_id)) + '.json') if request_id else None
+        payload_hash = digest(
+            {"proposal": proposal, "samples": samples, "parameters": parameters, "timeout": timeout_seconds}
+        )
+        with FileLock(store.home / ".develop.lock"):
+            requests = store.home / "operator_requests"
+            request_path = requests / (digest(str(request_id)) + ".json") if request_id else None
             if request_path and request_path.exists():
                 old = read_json(request_path)
-                if old['payload_hash'] != payload_hash:
-                    raise PlanFlowError('REQUEST_CONFLICT', 'request_id already has different arguments')
-                if old.get('job_id'):
-                    return self.get(old['job_id'])
-                raise PlanFlowError('DEVELOP_INTERRUPTED', 'Previous submission was interrupted before job creation; inspect before a new attempt')
-            jobs = [read_json(path) for path in (store.home / 'operator_jobs').glob('*.json')]
-            active = [job for job in jobs if job.get('status') == 'testing' and self._same_process(job.get('supervisor_pid'), job.get('supervisor_create_time'))]
+                if old["payload_hash"] != payload_hash:
+                    raise PlanFlowError("REQUEST_CONFLICT", "request_id already has different arguments")
+                if old.get("job_id"):
+                    return self.get(old["job_id"])
+                raise PlanFlowError(
+                    "DEVELOP_INTERRUPTED",
+                    "Previous submission was interrupted before job creation; inspect before a new attempt",
+                )
+            jobs = [read_json(path) for path in (store.home / "operator_jobs").glob("*.json")]
+            active = [
+                job
+                for job in jobs
+                if job.get("status") == "testing"
+                and self._same_process(job.get("supervisor_pid"), job.get("supervisor_create_time"))
+            ]
             if len(active) >= 2:
-                raise PlanFlowError('OPERATOR_CONCURRENCY_LIMIT', 'At most two validation jobs per account')
-            scope = str(task_id or proposal.get('name', ''))
-            budget_path = requests / (digest({'scope':scope, 'day':now_iso()[:10]}) + '.budget.json')
-            budget = read_json(budget_path) if budget_path.exists() else {'attempts':0}
-            if budget['attempts'] >= 3:
-                raise PlanFlowError('OPERATOR_BUDGET_EXHAUSTED', 'Three attempts used for this task/operator today; user action is required')
-            budget['attempts'] += 1
+                raise PlanFlowError("OPERATOR_CONCURRENCY_LIMIT", "At most two validation jobs per account")
+            scope = str(task_id or proposal.get("name", ""))
+            budget_path = requests / (digest({"scope": scope, "day": now_iso()[:10]}) + ".budget.json")
+            budget = read_json(budget_path) if budget_path.exists() else {"attempts": 0}
+            if budget["attempts"] >= 3:
+                raise PlanFlowError(
+                    "OPERATOR_BUDGET_EXHAUSTED",
+                    "Three attempts used for this task/operator today; user action is required",
+                )
+            budget["attempts"] += 1
             write_json_atomic(budget_path, budget)
             if request_path:
-                write_json_atomic(request_path, {'payload_hash':payload_hash})
+                write_json_atomic(request_path, {"payload_hash": payload_hash})
             result = self._develop(proposal, samples, parameters, timeout_seconds)
             if request_path:
-                write_json_atomic(request_path, {'payload_hash':payload_hash, 'job_id':result['job']['job_id']})
+                write_json_atomic(request_path, {"payload_hash": payload_hash, "job_id": result["job"]["job_id"]})
             return result
 
     def _develop(self, proposal, samples, parameters=None, timeout_seconds=180):
@@ -108,8 +121,6 @@ class UserOperatorValidation:
         if type(timeout_seconds) is not int or not 1 <= timeout_seconds <= 1800:
             raise PlanFlowError("INVALID_TIMEOUT", "Test timeout must be between 1 and 1800 seconds")
         # Copy media fixtures, never test against the original writable business files.
-        from .common import sha256_file
-
         media = []
         media_bytes = 0
         keys = [
@@ -236,15 +247,36 @@ class UserOperatorValidation:
         write_json_atomic(job_path, job)
         watchdog_env = os.environ.copy()
         for key in list(watchdog_env):
-            if key.startswith(('DSH_AUTH', 'LANGFUSE_')) or key in {'DSH_DJ_INTERNAL_TOKEN','DSH_REGISTRATION_INVITE_HASH'}:
+            if key.startswith(("DSH_AUTH", "LANGFUSE_")) or key in {
+                "DSH_DJ_INTERNAL_TOKEN",
+                "DSH_REGISTRATION_INVITE_HASH",
+            }:
                 watchdog_env.pop(key)
-        watchdog_env['PYTHONPATH'] = str(Path(__file__).resolve().parents[3]) + os.pathsep + watchdog_env.get('PYTHONPATH','')
+        watchdog_env["PYTHONPATH"] = (
+            str(Path(__file__).resolve().parents[3]) + os.pathsep + watchdog_env.get("PYTHONPATH", "")
+        )
         try:
-            subprocess.Popen([sys.executable, '-X', 'utf8', '-m', 'data_juicer.tools.plan_flow.operator_watchdog', str(store.root), store.user_id, job_id], env=watchdog_env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    "-X",
+                    "utf8",
+                    "-m",
+                    "data_juicer.tools.plan_flow.operator_watchdog",
+                    str(store.root),
+                    store.user_id,
+                    job_id,
+                ],
+                env=watchdog_env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
         except Exception:
             self._cleanup(store, temp, job)
-            job.update(status='failed', error='Watchdog could not start')
-            write_json_atomic(job_path,job)
+            job.update(status="failed", error="Watchdog could not start")
+            write_json_atomic(job_path, job)
             raise
         cancel = threading.Event()
         with self._lock:
@@ -330,11 +362,7 @@ class UserOperatorValidation:
         )
         arguments = {arg.arg for arg in init.args.args + init.args.kwonlyargs} if init else set()
         loaded = (
-            {
-                node.id
-                for node in ast.walk(init)
-                if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
-            }
+            {node.id for node in ast.walk(init) if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)}
             if init is not None
             else set()
         )
@@ -359,7 +387,11 @@ class UserOperatorValidation:
             job.update(cleanup_pending=True, cleanup_error=str(exc))
 
     def _run(self, store, temp, job_path, job, source, manifest, contract, timeout, cancel):
-        remaining = (datetime.fromisoformat(job["deadline"]) - datetime.now(timezone.utc)).total_seconds() if job.get("deadline") else timeout
+        remaining = (
+            (datetime.fromisoformat(job["deadline"]) - datetime.now(timezone.utc)).total_seconds()
+            if job.get("deadline")
+            else timeout
+        )
         deadline = time.monotonic() + max(0, remaining)
         active_process = None
         phase = "runtime_setup"
@@ -372,7 +404,10 @@ class UserOperatorValidation:
                 runtime_temp = runtime_temp[4:]
             env = os.environ.copy()
             for key in list(env):
-                if key.startswith(("DSH_AUTH", "LANGFUSE_")) or key in {"DSH_DJ_INTERNAL_TOKEN", "DSH_REGISTRATION_INVITE_HASH"}:
+                if key.startswith(("DSH_AUTH", "LANGFUSE_")) or key in {
+                    "DSH_DJ_INTERNAL_TOKEN",
+                    "DSH_REGISTRATION_INVITE_HASH",
+                }:
                     env.pop(key)
             env.update(
                 PYTHONUTF8="1",
@@ -426,16 +461,27 @@ class UserOperatorValidation:
                         )
                         raise RuntimeError(message)
 
-            if manifest['model_refs']:
+            if manifest["model_refs"]:
                 import sys
-                write_json_atomic(temp / 'model-request.json', manifest)
-                run_command([sys.executable, '-X', 'utf8', '-m', 'data_juicer.tools.plan_flow.user_operator_prepare', runtime_temp], 'model_prepare')
-                manifest = read_json(temp / 'model-result.json')
-                request = read_json(temp / 'request.json')
-                draft = store.operator_path(request['category'], request['name']) / 'drafts' / job['job_id']
-                write_json_atomic(store.path(draft / 'manifest.json'), manifest)
-                env['HF_HUB_OFFLINE'] = '1'
-                env['TRANSFORMERS_OFFLINE'] = '1'
+
+                write_json_atomic(temp / "model-request.json", manifest)
+                run_command(
+                    [
+                        sys.executable,
+                        "-X",
+                        "utf8",
+                        "-m",
+                        "data_juicer.tools.plan_flow.user_operator_prepare",
+                        runtime_temp,
+                    ],
+                    "model_prepare",
+                )
+                manifest = read_json(temp / "model-result.json")
+                request = read_json(temp / "request.json")
+                draft = store.operator_path(request["category"], request["name"]) / "drafts" / job["job_id"]
+                write_json_atomic(store.path(draft / "manifest.json"), manifest)
+                env["HF_HUB_OFFLINE"] = "1"
+                env["TRANSFORMERS_OFFLINE"] = "1"
 
             from .user_operator_runtime import runtime_python
 

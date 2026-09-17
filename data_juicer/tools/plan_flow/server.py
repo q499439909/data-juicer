@@ -15,12 +15,13 @@ from starlette.responses import FileResponse, JSONResponse
 from data_juicer.utils.lazy_loader import LazyLoader
 
 from .common import PlanFlowError
-from .task_control import trusted_decision, authorize_task
+from .plan_contract import PlanDraft
+from .plan_contract import contract as plan_contract
 from .run_output_gateway import RunOutputGateway
 from .service import PlanFlowService
+from .task_control import authorize_task, trusted_decision
 from .user_operator_store import current_user, safe_id
 from .user_operator_validation import validation_jobs
-from .plan_contract import PlanDraft, contract as plan_contract
 
 fastmcp = LazyLoader("mcp.server.fastmcp", "mcp[cli]")
 
@@ -49,7 +50,11 @@ WorkspaceRoot = Annotated[
 
 def _call(method, *args, **kwargs) -> dict[str, Any]:
     try:
-        if os.environ.get("DSH_DJ_INTERNAL_TOKEN") and not current_user.get() and method.__name__ not in {"operator_catalog", "operator_detail"}:
+        if (
+            os.environ.get("DSH_DJ_INTERNAL_TOKEN")
+            and not current_user.get()
+            and method.__name__ not in {"operator_catalog", "operator_detail"}
+        ):
             raise PlanFlowError("ACCOUNT_REQUIRED", "Use the authenticated DJ gateway")
         return method(*args, **kwargs)
     except PlanFlowError as exc:
@@ -89,8 +94,14 @@ def get_custom_operator_authoring_spec(
     return {"ok": True, "spec": result} if "ok" not in result else result
 
 
-def develop_custom_operator(proposal: dict[str, Any], samples: list[dict[str, Any]], parameters: dict[str, Any] | None = None,
-                            timeout_seconds: int = 180, request_id: str | None = None, task_id: str | None = None) -> dict[str, Any]:
+def develop_custom_operator(
+    proposal: dict[str, Any],
+    samples: list[dict[str, Any]],
+    parameters: dict[str, Any] | None = None,
+    timeout_seconds: int = 180,
+    request_id: str | None = None,
+    task_id: str | None = None,
+) -> dict[str, Any]:
     """Submit generated Python to the current account only. proposal: name, category, source, validation_contract
     (purpose, row_count, equals=[{row,field,value}], limitations), optional exact dependencies/model_refs/replaces.
     Samples are temporary JSON records. Runs real DJ validation asynchronously, cleans test files, and publishes
@@ -104,19 +115,31 @@ def get_custom_operator_job(job_id: str, cancel: bool = False) -> dict[str, Any]
     return _call(validation_jobs.get, job_id, cancel)
 
 
-def validate_custom_operator(candidate_id: str, samples: list[dict[str, Any]], parameters: dict[str, Any] | None = None,
-                             timeout_seconds: int = 180, request_id: str | None = None, task_id: str | None = None) -> dict[str, Any]:
+def validate_custom_operator(
+    candidate_id: str,
+    samples: list[dict[str, Any]],
+    parameters: dict[str, Any] | None = None,
+    timeout_seconds: int = 180,
+    request_id: str | None = None,
+    task_id: str | None = None,
+) -> dict[str, Any]:
     """Re-run an existing personal version's frozen contract with temporary samples; does not weaken its contract."""
     from pathlib import Path
+
     from .common import read_json
     from .user_operator_store import UserOperatorStore
+
     try:
         item = UserOperatorStore().resolve(candidate_id)
         path = Path(item["_path"])
         contract = read_json(path.parent / "validation-contract.json")
-        proposal = {"name": item["name"], "category": item["type"], "source": path.read_text(encoding="utf-8"),
-                    "validation_contract": {key: value for key, value in contract.items() if not key.startswith("_")},
-                    **item["_manifest"]}
+        proposal = {
+            "name": item["name"],
+            "category": item["type"],
+            "source": path.read_text(encoding="utf-8"),
+            "validation_contract": {key: value for key, value in contract.items() if not key.startswith("_")},
+            **item["_manifest"],
+        }
         return _call(validation_jobs.develop, proposal, samples, parameters, timeout_seconds, request_id, task_id)
     except PlanFlowError as exc:
         return exc.to_dict()
@@ -137,19 +160,26 @@ def inspect_input(workspace_root: WorkspaceRoot, input: dict[str, Any], sample_s
 
 
 def search_capabilities(
-    requirements: list[str], modality: str | None = None, executor_type: str = "default", top_k: int = 3, include_details: bool = False
+    requirements: list[str],
+    modality: str | None = None,
+    executor_type: str = "default",
+    top_k: int = 3,
+    include_details: bool = False,
 ) -> dict[str, Any]:
     """Return up to three candidates per requirement. image includes image/multimodal operators; multimodal includes component media operators. Fetch schemas after selecting candidates; include_details expands retrieval evidence."""
     result = _call(service.search_capabilities, requirements, modality, executor_type, top_k)
-    if not include_details and result.get('ok'):
-        for row in result.get('results',[]):
-            row.pop('retrieval',None); row.pop('ranking',None)
-        for item in result.get('operators',[]):
-            item['description']=item.get('description','').split('\n\n')[0][:360]
-            item['schema_ref']=item.get('candidate_id',item['name'])
-            item.pop('ranking',None)
-            item.pop('match_score',None)
-            item['match_semantics']='Candidate rank only; verify the requested behavior using its capability contract.'
+    if not include_details and result.get("ok"):
+        for row in result.get("results", []):
+            row.pop("retrieval", None)
+            row.pop("ranking", None)
+        for item in result.get("operators", []):
+            item["description"] = item.get("description", "").split("\n\n")[0][:360]
+            item["schema_ref"] = item.get("candidate_id", item["name"])
+            item.pop("ranking", None)
+            item.pop("match_score", None)
+            item["match_semantics"] = (
+                "Candidate rank only; verify the requested behavior using its capability contract."
+            )
     return result
 
 
@@ -160,9 +190,15 @@ def get_plan_contract() -> dict[str, Any]:
 
 def inspect_runtime(workspace_root: WorkspaceRoot, task_id: str, plan_version: str | None = None) -> dict[str, Any]:
     """Read the authorized Plan's platform-specific dependency closure, runtime identity and recovery actions; never install packages."""
-    result=_call(service.get_plan,workspace_root,task_id,plan_version)
-    if not result.get('ok'): return result
-    return {'ok':True,'task_id':task_id,'plan_version':result['plan_version'],'runtime_assessment':result['runtime_assessment']}
+    result = _call(service.get_plan, workspace_root, task_id, plan_version)
+    if not result.get("ok"):
+        return result
+    return {
+        "ok": True,
+        "task_id": task_id,
+        "plan_version": result["plan_version"],
+        "runtime_assessment": result["runtime_assessment"],
+    }
 
 
 def get_capability_schemas(operator_names: list[str]) -> dict[str, Any]:
@@ -209,8 +245,8 @@ def prepare_plan(
     request_id: str | None = None,
 ) -> dict[str, Any]:
     """Validate and save a new immutable plan_vNNN. Invalid drafts are saved for audit but cannot be approved."""
-    raw=plan.model_dump(exclude_unset=True) if isinstance(plan,PlanDraft) else dict(plan)
-    raw.pop('submission_ref',None)
+    raw = plan.model_dump(exclude_unset=True) if isinstance(plan, PlanDraft) else dict(plan)
+    raw.pop("submission_ref", None)
     return _call(service.prepare_plan, workspace_root, raw, task_id, base_plan_version, view_spec, request_id)
 
 
@@ -236,7 +272,13 @@ def approve_plan(
     return _call(service.approve_plan, workspace_root, task_id, plan_version, content_hash, note, accepted_gaps)
 
 
-def run_plan(workspace_root: WorkspaceRoot, task_id: str, plan_version: str, request_id: str | None = None, timeout_seconds: int = 3600) -> dict[str, Any]:
+def run_plan(
+    workspace_root: WorkspaceRoot,
+    task_id: str,
+    plan_version: str,
+    request_id: str | None = None,
+    timeout_seconds: int = 3600,
+) -> dict[str, Any]:
     """Start an approved plan asynchronously in a fresh versioned output directory."""
     return _call(service.run_plan, workspace_root, task_id, plan_version, request_id, timeout_seconds)
 
@@ -252,7 +294,8 @@ def cancel_run(workspace_root: WorkspaceRoot, task_id: str, run_id: str) -> dict
 
 
 def create_mcp_server(port: str = "8000"):
-    from .deployment import service_contract, planning_health
+    from .deployment import planning_health, service_contract
+
     contract = service_contract(service.execution_mode)
     mcp = fastmcp.FastMCP(
         "Data-Juicer Plan Flow",
@@ -286,37 +329,66 @@ def create_mcp_server(port: str = "8000"):
     for tool in tool_functions:
         mcp.tool()(tool)
 
-    @mcp.custom_route('/internal/health', methods=['GET'], include_in_schema=False)
+    @mcp.custom_route("/internal/health", methods=["GET"], include_in_schema=False)
     async def internal_health(request: Request):
         if not _internal_authorized(request):
-            return JSONResponse({'ok':False, 'error':'unauthorized'}, status_code=403)
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=403)
         payload = planning_health(contract)
-        return JSONResponse(payload, status_code=200 if payload['ok'] else 503, headers={'Cache-Control':'no-store'})
+        return JSONResponse(payload, status_code=200 if payload["ok"] else 503, headers={"Cache-Control": "no-store"})
 
     @mcp.custom_route("/internal/operator-tools", methods=["GET", "POST"], include_in_schema=False)
     async def account_tool_gateway(request: Request) -> JSONResponse:
         if not _internal_authorized(request):
             return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=403)
         if request.method == "GET":
-            return JSONResponse({**contract, "tools": [item.model_dump(mode="json") for item in await mcp.list_tools()]}, headers={"Cache-Control":"no-store"})
+            return JSONResponse(
+                {**contract, "tools": [item.model_dump(mode="json") for item in await mcp.list_tools()]},
+                headers={"Cache-Control": "no-store"},
+            )
         if not request.headers.get("x-dsh-user-id"):
             return JSONResponse({"ok": False, "error": "account_required"}, status_code=403)
         body = await request.body()
         if len(body) > 2_000_000:
             return JSONResponse({"ok": False, "error": "request_too_large"}, status_code=413)
         import json
+
         import anyio
+
         try:
             payload = json.loads(body)
             function = {fn.__name__: fn for fn in tool_functions}.get(payload.get("name"))
             if function is None:
                 raise ValueError("Unknown tool")
             if payload.get("name") == "approve_plan":
-                return JSONResponse({"ok": False, "error": {"code":"USER_DECISION_REQUIRED", "message":"Approve the exact plan through the UI"}}, status_code=403)
-            if request.headers.get('x-dsh-dj-protocol') != str(contract['protocol']['version']):
-                return JSONResponse({'ok':False, 'error':{'code':'PROTOCOL_MISMATCH', 'message':'Negotiate the DJ gateway protocol before calling tools'}}, status_code=409)
-            if request.headers.get('x-dsh-dj-instance') != contract['instance_id']:
-                return JSONResponse({'ok':False, 'error':{'code':'SERVICE_RESTARTED', 'message':'DJ service changed; reconnect the bridge before retrying'}}, status_code=409)
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": {"code": "USER_DECISION_REQUIRED", "message": "Approve the exact plan through the UI"},
+                    },
+                    status_code=403,
+                )
+            if request.headers.get("x-dsh-dj-protocol") != str(contract["protocol"]["version"]):
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "PROTOCOL_MISMATCH",
+                            "message": "Negotiate the DJ gateway protocol before calling tools",
+                        },
+                    },
+                    status_code=409,
+                )
+            if request.headers.get("x-dsh-dj-instance") != contract["instance_id"]:
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "SERVICE_RESTARTED",
+                            "message": "DJ service changed; reconnect the bridge before retrying",
+                        },
+                    },
+                    status_code=409,
+                )
             arguments = payload.get("arguments", {})
             inspect.signature(function).bind(**arguments)
             metadata = mcp._tool_manager.get_tool(function.__name__).fn_metadata
@@ -327,48 +399,58 @@ def create_mcp_server(port: str = "8000"):
         except (ValueError, TypeError) as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
 
-    @mcp.custom_route('/internal/plan-decision', methods=['POST'], include_in_schema=False)
+    @mcp.custom_route("/internal/plan-decision", methods=["POST"], include_in_schema=False)
     async def plan_decision(request: Request):
-        if not _internal_authorized(request) or not request.headers.get('x-dsh-user-id'):
-            return JSONResponse({'ok': False, 'error': 'unauthorized'}, status_code=403)
+        if not _internal_authorized(request) or not request.headers.get("x-dsh-user-id"):
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=403)
         import uuid
+
         try:
             raw = await request.body()
             if len(raw) > 16384:
-                raise ValueError('Decision payload too large')
+                raise ValueError("Decision payload too large")
             import json
+
             body = json.loads(raw)
-            decision_id = str(uuid.UUID(body['decision_id']))
+            decision_id = str(uuid.UUID(body["decision_id"]))
             with _request_user(request):
-                token = trusted_decision.set('ui:' + decision_id)
+                token = trusted_decision.set("ui:" + decision_id)
                 try:
-                    payload = approve_plan(body['workspace_root'], body['task_id'], body['plan_version'], body['content_hash'],accepted_gaps=body.get('accepted_gaps'))
+                    payload = approve_plan(
+                        body["workspace_root"],
+                        body["task_id"],
+                        body["plan_version"],
+                        body["content_hash"],
+                        accepted_gaps=body.get("accepted_gaps"),
+                    )
                 finally:
                     trusted_decision.reset(token)
-            return JSONResponse(payload, status_code=200 if payload.get('ok') else 403)
+            return JSONResponse(payload, status_code=200 if payload.get("ok") else 403)
         except (ValueError, KeyError, TypeError):
-            return JSONResponse({'ok': False, 'error': 'invalid_decision'}, status_code=400)
+            return JSONResponse({"ok": False, "error": "invalid_decision"}, status_code=400)
 
-    @mcp.custom_route('/internal/workspace-access', methods=['GET'], include_in_schema=False)
+    @mcp.custom_route("/internal/workspace-access", methods=["GET"], include_in_schema=False)
     async def workspace_access(request: Request):
         if not _internal_authorized(request):
-            return JSONResponse({'ok':False}, status_code=403)
+            return JSONResponse({"ok": False}, status_code=403)
         from .task_control import authorize_workspace
+
         try:
             with _request_user(request):
-                authorize_workspace(request.query_params.get('workspace_root', ''))
-            return JSONResponse({'ok':True})
+                authorize_workspace(request.query_params.get("workspace_root", ""))
+            return JSONResponse({"ok": True})
         except PlanFlowError as exc:
             return JSONResponse(exc.to_dict(), status_code=403)
 
-    @mcp.custom_route('/internal/task-runs', methods=['GET'], include_in_schema=False)
+    @mcp.custom_route("/internal/task-runs", methods=["GET"], include_in_schema=False)
     async def task_runs(request: Request):
         if not _internal_authorized(request):
-            return JSONResponse({'ok': False, 'error': 'unauthorized'}, status_code=403)
+            return JSONResponse({"ok": False, "error": "unauthorized"}, status_code=403)
         from .task_control import list_owned_runs
+
         with _request_user(request):
-            result = _call(list_owned_runs, request.query_params.get('cursor', '0'))
-        return JSONResponse(result, status_code=200 if result.get('ok') else 403)
+            result = _call(list_owned_runs, request.query_params.get("cursor", "0"))
+        return JSONResponse(result, status_code=200 if result.get("ok") else 403)
 
     @mcp.custom_route("/operator-catalog", methods=["GET"], include_in_schema=False)
     async def get_operator_catalog(_request: Request) -> JSONResponse:
@@ -399,7 +481,9 @@ def create_mcp_server(port: str = "8000"):
                 request.query_params.get("plan_version") or None,
                 request.query_params.get("include_versions") == "true",
             )
-        return JSONResponse(payload, status_code=200 if payload.get("ok") else 404, headers={"Cache-Control": "no-store"})
+        return JSONResponse(
+            payload, status_code=200 if payload.get("ok") else 404, headers={"Cache-Control": "no-store"}
+        )
 
     @mcp.custom_route("/run-steps", methods=["GET"], include_in_schema=False)
     async def get_run_steps(request: Request) -> JSONResponse:
@@ -409,14 +493,19 @@ def create_mcp_server(port: str = "8000"):
                 request.query_params.get("task_id", ""),
                 request.query_params.get("run_id") or None,
             )
-        return JSONResponse(payload, status_code=200 if payload.get("ok") else 404, headers={"Cache-Control": "no-store"})
+        return JSONResponse(
+            payload, status_code=200 if payload.get("ok") else 404, headers={"Cache-Control": "no-store"}
+        )
 
     @mcp.custom_route("/internal/run-output", methods=["GET", "DELETE"], include_in_schema=False)
     async def internal_run_output(request: Request) -> JSONResponse:
         if not _internal_authorized(request):
-            return JSONResponse({"ok": False, "error": {"code": "INTERNAL_UNAUTHORIZED", "message": "Unauthorized"}}, status_code=403)
+            return JSONResponse(
+                {"ok": False, "error": {"code": "INTERNAL_UNAUTHORIZED", "message": "Unauthorized"}}, status_code=403
+            )
         args = _result_arguments(request)
         from .store import PlanStore
+
         try:
             with _request_user(request):
                 authorize_task(PlanStore(args[0]), args[1])
@@ -437,9 +526,12 @@ def create_mcp_server(port: str = "8000"):
     @mcp.custom_route("/internal/run-asset", methods=["GET"], include_in_schema=False)
     async def internal_run_asset(request: Request):
         if not _internal_authorized(request):
-            return JSONResponse({"ok": False, "error": {"code": "INTERNAL_UNAUTHORIZED", "message": "Unauthorized"}}, status_code=403)
+            return JSONResponse(
+                {"ok": False, "error": {"code": "INTERNAL_UNAUTHORIZED", "message": "Unauthorized"}}, status_code=403
+            )
         try:
             from .store import PlanStore
+
             with _request_user(request):
                 args = _result_arguments(request)
                 authorize_task(PlanStore(args[0]), args[1])
@@ -460,9 +552,12 @@ def create_mcp_server(port: str = "8000"):
     @mcp.custom_route("/internal/run-archive", methods=["GET"], include_in_schema=False)
     async def internal_run_archive(request: Request):
         if not _internal_authorized(request):
-            return JSONResponse({"ok": False, "error": {"code": "INTERNAL_UNAUTHORIZED", "message": "Unauthorized"}}, status_code=403)
+            return JSONResponse(
+                {"ok": False, "error": {"code": "INTERNAL_UNAUTHORIZED", "message": "Unauthorized"}}, status_code=403
+            )
         try:
             from .store import PlanStore
+
             with _request_user(request):
                 args = _result_arguments(request)
                 authorize_task(PlanStore(args[0]), args[1])

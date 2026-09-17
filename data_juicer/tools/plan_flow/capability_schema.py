@@ -7,7 +7,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .common import FileLock, PlanFlowError, canonical_json, now_iso, read_json, sha256_bytes, write_json_atomic
+from .common import (
+    FileLock,
+    PlanFlowError,
+    canonical_json,
+    now_iso,
+    read_json,
+    sha256_bytes,
+    write_json_atomic,
+)
 
 _IDENTIFIER = re.compile(r"[a-z][a-z0-9._-]{2,127}\Z")
 _OPERATOR_NAME = re.compile(r"[a-z][a-z0-9_]{2,127}\Z")
@@ -148,8 +156,14 @@ class OperatorArtifact:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "OperatorArtifact":
         expected = {
-            "schema_version", "artifact_id", "content_hash", "source_hash", "dependency_lock_hash",
-            "operators", "model_refs", "created_at",
+            "schema_version",
+            "artifact_id",
+            "content_hash",
+            "source_hash",
+            "dependency_lock_hash",
+            "operators",
+            "model_refs",
+            "created_at",
         }
         if not isinstance(value, dict) or set(value) != expected or value.get("schema_version") != 1:
             raise PlanFlowError("INVALID_OPERATOR_ARTIFACT", "OperatorArtifact fields do not match schema")
@@ -200,7 +214,9 @@ class CapabilityDescriptor:
             tuple(_identifier(item, "operator_artifact_id") for item in operator_artifact_ids),
             "operator_artifact_ids",
         )
-        profiles = _unique(tuple(_identifier(item, "resource_profile") for item in resource_profiles), "resource_profiles")
+        profiles = _unique(
+            tuple(_identifier(item, "resource_profile") for item in resource_profiles), "resource_profiles"
+        )
         if run_network != "none":
             raise PlanFlowError("INVALID_CAPABILITY_SCHEMA", "only run_network=none is supported")
         approval_scope = _identifier(approval_scope, "approval_scope")
@@ -244,8 +260,16 @@ class CapabilityDescriptor:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "CapabilityDescriptor":
         expected = {
-            "schema_version", "capability_id", "content_hash", "implements", "operator_artifact_ids",
-            "model_refs", "run_network", "resource_profiles", "approval_scope", "created_at",
+            "schema_version",
+            "capability_id",
+            "content_hash",
+            "implements",
+            "operator_artifact_ids",
+            "model_refs",
+            "run_network",
+            "resource_profiles",
+            "approval_scope",
+            "created_at",
         }
         if not isinstance(value, dict) or set(value) != expected or value.get("schema_version") != 2:
             raise PlanFlowError("INVALID_CAPABILITY_SCHEMA", "CapabilityDescriptor fields do not match schema")

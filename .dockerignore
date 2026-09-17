@@ -15,4 +15,3 @@ data_juicer/**/__pycache__/
 data_juicer/**/*.py[cod]
 tools/**/__pycache__/
 tools/**/*.py[cod]
-

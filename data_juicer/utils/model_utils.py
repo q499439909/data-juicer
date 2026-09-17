@@ -1583,6 +1583,7 @@ class MMLabModel(object):
 
     def _install_required_packages(self):
         import importlib
+
         from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
 
         try:
@@ -1717,7 +1718,9 @@ def prepare_sam_3d_body_model(
         try:
             importlib.import_module("modelscope")
         except ImportError:
-            from data_juicer.utils.lazy_loader import ensure_runtime_installation_allowed
+            from data_juicer.utils.lazy_loader import (
+                ensure_runtime_installation_allowed,
+            )
 
             ensure_runtime_installation_allowed("install modelscope")
             logger.info("Installing modelscope...")

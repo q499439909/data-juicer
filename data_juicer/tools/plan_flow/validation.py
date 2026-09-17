@@ -223,7 +223,11 @@ def _validate_model_response_contract(
 
 
 def normalize_and_validate(
-    workspace_root: str, raw_plan: dict[str, Any], *, external_operator_names: frozenset[str] = frozenset(), operator_schemas=None
+    workspace_root: str,
+    raw_plan: dict[str, Any],
+    *,
+    external_operator_names: frozenset[str] = frozenset(),
+    operator_schemas=None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     workspace = require_workspace(workspace_root)
     plan = copy.deepcopy(raw_plan)
@@ -468,24 +472,41 @@ def normalize_and_validate(
             artifact_paths.append(str(raw))
     for index, step in enumerate(plan.get("postprocess", []) or []):
         location = f"postprocess[{index}]"
-        if isinstance(step,dict) and step.get('kind')=='image_audit':
+        if isinstance(step, dict) and step.get("kind") == "image_audit":
             from .plan_contract import ImageAudit
+
             try:
-                audit=ImageAudit.model_validate(step)
-                if audit.image_key!=recipe.get('image_key','images'):
-                    raise ValueError('Audit image_key must match recipe.image_key')
-                prefixes=[s.get('output_prefix','audit') for s in plan.get('postprocess',[]) if isinstance(s,dict) and s.get('kind')=='image_audit']
-                if len(set(prefixes))!=len(prefixes):
-                    raise ValueError('Each audit component needs a distinct output_prefix')
-                if len({r.id for r in audit.rules})!=len(audit.rules) or any((r.min is None and r.max is None) or (r.min is not None and r.max is not None and r.min>r.max) for r in audit.rules):
-                    raise ValueError('Audit rules need unique IDs and ordered finite bounds')
-                if recipe.get('executor_type','default')!='default' or not str(recipe.get('dataset_path','')).endswith('.jsonl'):
-                    raise ValueError('image_audit requires default native executor and a local JSONL manifest')
-                if any((operator_schemas or {}).get(next(iter(op)), operator_schema(next(iter(op))) or {}).get('type')!='filter' for op in recipe.get('process',[]) if isinstance(op,dict) and len(op)==1):
-                    raise ValueError('image_audit recipe must contain only Filter operators; native runner scores without dropping samples')
-                recipe['keep_stats_in_res_ds']=True
-            except (ValueError,TypeError) as exc:
-                errors.append({'code':'INVALID_IMAGE_AUDIT','path':location,'message':str(exc)})
+                audit = ImageAudit.model_validate(step)
+                if audit.image_key != recipe.get("image_key", "images"):
+                    raise ValueError("Audit image_key must match recipe.image_key")
+                prefixes = [
+                    s.get("output_prefix", "audit")
+                    for s in plan.get("postprocess", [])
+                    if isinstance(s, dict) and s.get("kind") == "image_audit"
+                ]
+                if len(set(prefixes)) != len(prefixes):
+                    raise ValueError("Each audit component needs a distinct output_prefix")
+                if len({r.id for r in audit.rules}) != len(audit.rules) or any(
+                    (r.min is None and r.max is None) or (r.min is not None and r.max is not None and r.min > r.max)
+                    for r in audit.rules
+                ):
+                    raise ValueError("Audit rules need unique IDs and ordered finite bounds")
+                if recipe.get("executor_type", "default") != "default" or not str(
+                    recipe.get("dataset_path", "")
+                ).endswith(".jsonl"):
+                    raise ValueError("image_audit requires default native executor and a local JSONL manifest")
+                if any(
+                    (operator_schemas or {}).get(next(iter(op)), operator_schema(next(iter(op))) or {}).get("type")
+                    != "filter"
+                    for op in recipe.get("process", [])
+                    if isinstance(op, dict) and len(op) == 1
+                ):
+                    raise ValueError(
+                        "image_audit recipe must contain only Filter operators; native runner scores without dropping samples"
+                    )
+                recipe["keep_stats_in_res_ds"] = True
+            except (ValueError, TypeError) as exc:
+                errors.append({"code": "INVALID_IMAGE_AUDIT", "path": location, "message": str(exc)})
             continue
         if not isinstance(step, dict) or step.get("kind") != "python":
             errors.append(
@@ -522,5 +543,6 @@ def normalize_and_validate(
     _validate_secrets(plan, "", errors)
     from .delivery import validate_contract
     from .task_control import controlled
+
     validate_contract(plan, errors, required=controlled())
     return plan, {"ok": not errors, "errors": errors, "warnings": warnings}, artifact_paths

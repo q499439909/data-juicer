@@ -87,6 +87,7 @@ class RuntimePreflight:
         personal_schemas = {}
         if plan.get("operator_bindings"):
             from .user_operator_store import resolve_bindings
+
             personal_schemas = resolve_bindings(plan)
         for index, step in enumerate(process if isinstance(process, list) else []):
             if not isinstance(step, dict) or len(step) != 1:

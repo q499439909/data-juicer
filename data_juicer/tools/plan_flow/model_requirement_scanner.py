@@ -52,11 +52,7 @@ def _matches(requirement: dict, finding: dict) -> bool:
 
 def scan(catalog_path: str | Path | None = None) -> dict:
     catalog = load_builtin_model_catalog(catalog_path)
-    locked_operators = {
-        consumer["operator"]
-        for model in catalog["models"]
-        for consumer in model.get("consumers", [])
-    }
+    locked_operators = {consumer["operator"] for model in catalog["models"] for consumer in model.get("consumers", [])}
     blocked = catalog.get("blocked_requirements", [])
     exempt = catalog.get("exempt_requirements", [])
     findings = []

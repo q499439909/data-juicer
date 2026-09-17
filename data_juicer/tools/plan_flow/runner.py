@@ -6,6 +6,7 @@ import copy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
 from filelock import FileLock as StateLock
 
 from .common import (
@@ -39,9 +40,13 @@ class PlanRunner:
         self.store = PlanStore(workspace_root)
         self.backend = backend or LocalProcessBackend(self.store.workspace)
 
-    def start(self, task_id: str, plan_version: str, *, timeout_seconds: int | None = None, request_id: str | None = None) -> dict[str, Any]:
+    def start(
+        self, task_id: str, plan_version: str, *, timeout_seconds: int | None = None, request_id: str | None = None
+    ) -> dict[str, Any]:
         if timeout_seconds is not None and (
-            isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, int) or not 1 <= timeout_seconds <= 604800
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, int)
+            or not 1 <= timeout_seconds <= 604800
         ):
             raise PlanFlowError("INVALID_TIMEOUT", "timeout_seconds must be an integer between 1 and 604800")
         content_hash = self.store.verify_bundle(task_id, plan_version)
@@ -52,18 +57,22 @@ class PlanRunner:
         task_path = self.store.task_path(task_id)
         with FileLock(task_path / ".lock"):
             import hashlib
+
             from .common import canonical_json
+
             request_path = None
-            request_hash = hashlib.sha256(canonical_json({'plan_version': plan_version, 'timeout_seconds': timeout_seconds})).hexdigest()
+            request_hash = hashlib.sha256(
+                canonical_json({"plan_version": plan_version, "timeout_seconds": timeout_seconds})
+            ).hexdigest()
             if request_id is not None:
                 if not isinstance(request_id, str) or not 1 <= len(request_id) <= 256:
-                    raise PlanFlowError('INVALID_REQUEST_ID', 'request_id must be 1-256 characters')
-                request_path = task_path / 'requests' / (hashlib.sha256(request_id.encode()).hexdigest() + '.json')
+                    raise PlanFlowError("INVALID_REQUEST_ID", "request_id must be 1-256 characters")
+                request_path = task_path / "requests" / (hashlib.sha256(request_id.encode()).hexdigest() + ".json")
                 if request_path.exists():
                     previous = read_json(request_path)
-                    if previous['payload_hash'] != request_hash:
-                        raise PlanFlowError('REQUEST_CONFLICT', 'request_id was used with different arguments')
-                    return self.get(task_id, previous['run_id'])
+                    if previous["payload_hash"] != request_hash:
+                        raise PlanFlowError("REQUEST_CONFLICT", "request_id was used with different arguments")
+                    return self.get(task_id, previous["run_id"])
             runs_root = task_path / "runs"
             run_id = f"run_r{self.store._next_number(runs_root, 'run_r'):03d}"
             run_path = runs_root / run_id
@@ -74,10 +83,14 @@ class PlanRunner:
             (run_path / "logs").mkdir()
             recipe = self._materialize(plan_info["plan"]["recipe"], run_path, output)
             if plan_info["plan"].get("operator_bindings"):
-                from .user_operator_store import UserOperatorStore, resolve_bindings
                 from .user_operator_runtime import runtime_python
+                from .user_operator_store import UserOperatorStore, resolve_bindings
+
                 selected = resolve_bindings(plan_info["plan"])
-                python = runtime_python(UserOperatorStore(), [req for item in selected.values() for req in item["_manifest"].get("dependencies", [])])
+                python = runtime_python(
+                    UserOperatorStore(),
+                    [req for item in selected.values() for req in item["_manifest"].get("dependencies", [])],
+                )
                 if isinstance(self.backend, LocalProcessBackend):
                     self.backend.python_executable = python
                 recipe["custom_operator_paths"] = []
@@ -87,7 +100,10 @@ class PlanRunner:
                     for filename, content in item["_manifest"].get("assets", {}).items():
                         asset_path = target.parent / "assets" / filename
                         if asset_path.exists() and asset_path.read_text(encoding="utf-8") != content:
-                            raise PlanFlowError("ASSET_NAME_CONFLICT", "Selected operators use different resources with the same filename")
+                            raise PlanFlowError(
+                                "ASSET_NAME_CONFLICT",
+                                "Selected operators use different resources with the same filename",
+                            )
                         write_text_atomic(asset_path, content)
                     recipe["custom_operator_paths"].append(str(target))
             write_yaml_atomic(run_path / "materialized-recipe.yaml", recipe)
@@ -108,7 +124,7 @@ class PlanRunner:
             }
             write_json_atomic(run_path / "run.json", state)
             if request_path:
-                write_json_atomic(request_path, {'payload_hash': request_hash, 'run_id': run_id})
+                write_json_atomic(request_path, {"payload_hash": request_hash, "run_id": run_id})
             spec = RuntimeSpec(
                 task_id=task_id,
                 plan_version=plan_version,
@@ -136,12 +152,12 @@ class PlanRunner:
                 )
                 write_json_atomic(run_path / "run.json", state)
                 raise
-            with StateLock(run_path / 'run.lock'):
-                state = read_json(run_path / 'run.json')
+            with StateLock(run_path / "run.lock"):
+                state = read_json(run_path / "run.json")
                 state.update(handle=handle.to_dict(), updated_at=now_iso())
-                if state['status'] == 'starting':
-                    state['status'] = 'running'
-                write_json_atomic(run_path / 'run.json', state)
+                if state["status"] == "starting":
+                    state["status"] = "running"
+                write_json_atomic(run_path / "run.json", state)
             write_text_atomic(run_path / ".started", "ready\n")
             current = read_json(task_path / "current.json")
             current["latest_run"] = run_id
@@ -186,10 +202,10 @@ class PlanRunner:
                         "error": observed.message or "Execution backend stopped without a final result",
                     }
                 )
-                with StateLock(run_path / 'run.lock'):
-                    current = read_json(run_path / 'run.json')
-                    if current['status'] == refreshed['status'] and current['status'] != 'cancelling':
-                        write_json_atomic(run_path / 'run.json', state)
+                with StateLock(run_path / "run.lock"):
+                    current = read_json(run_path / "run.json")
+                    if current["status"] == refreshed["status"] and current["status"] != "cancelling":
+                        write_json_atomic(run_path / "run.json", state)
                     else:
                         state = current
             elif observed.terminal:
@@ -206,10 +222,10 @@ class PlanRunner:
                     state["error"] = result.error
                 if result.provenance:
                     state["runtime_provenance"] = result.provenance
-                with StateLock(run_path / 'run.lock'):
-                    current = read_json(run_path / 'run.json')
-                    if current['status'] == refreshed['status'] and current['status'] != 'cancelling':
-                        write_json_atomic(run_path / 'run.json', state)
+                with StateLock(run_path / "run.lock"):
+                    current = read_json(run_path / "run.json")
+                    if current["status"] == refreshed["status"] and current["status"] != "cancelling":
+                        write_json_atomic(run_path / "run.json", state)
                     else:
                         state = current
         state["stdout_log"] = str(run_path / "logs" / "stdout.log")
@@ -224,24 +240,42 @@ class PlanRunner:
 
         plan = self.store.get_plan(task_id, state["plan_version"])["plan"]
         telemetry = read_run_steps(run_path, plan.get("recipe", {}).get("process", []), state["status"])
-        observed=telemetry.pop('steps')
+        observed = telemetry.pop("steps")
         # Native audit scoring records state directly instead of reducing through
         # DefaultExecutor, so preserve those authoritative worker transitions.
-        for step in state.get('steps',[]):
-            index=step.get('process_index')
-            if type(index) is int and 0<=index<len(observed) and observed[index]['operator_name']==step.get('operator_name'):
+        for step in state.get("steps", []):
+            index = step.get("process_index")
+            if (
+                type(index) is int
+                and 0 <= index < len(observed)
+                and observed[index]["operator_name"] == step.get("operator_name")
+            ):
                 observed[index].update(step)
-        for index,item in enumerate(plan.get('postprocess',[])):
-            completed=next((r for r in state.get('postprocess_results',[]) if r.get('step')==index+1),None)
-            active=state.get('active_postprocess_index')==index
-            status='succeeded' if completed else ('failed' if state['status']=='failed' else 'running') if active else 'pending'
-            if not completed and state['status']=='cancelled': status='cancelled'
-            if not completed and not active and state['status']=='failed': status='skipped'
-            observed.append({'process_index':len(plan.get('recipe',{}).get('process',[]))+index,
-                'postprocess_index':index,'operator_name':item.get('kind','python'),'phase':'postprocess',
-                'status':status})
-        state['steps']=observed
-        telemetry['mapping_complete']=bool(observed) and all(s['status'] in {'succeeded','failed','skipped','cancelled'} for s in observed)
+        for index, item in enumerate(plan.get("postprocess", [])):
+            completed = next((r for r in state.get("postprocess_results", []) if r.get("step") == index + 1), None)
+            active = state.get("active_postprocess_index") == index
+            status = (
+                "succeeded"
+                if completed
+                else ("failed" if state["status"] == "failed" else "running") if active else "pending"
+            )
+            if not completed and state["status"] == "cancelled":
+                status = "cancelled"
+            if not completed and not active and state["status"] == "failed":
+                status = "skipped"
+            observed.append(
+                {
+                    "process_index": len(plan.get("recipe", {}).get("process", [])) + index,
+                    "postprocess_index": index,
+                    "operator_name": item.get("kind", "python"),
+                    "phase": "postprocess",
+                    "status": status,
+                }
+            )
+        state["steps"] = observed
+        telemetry["mapping_complete"] = bool(observed) and all(
+            s["status"] in {"succeeded", "failed", "skipped", "cancelled"} for s in observed
+        )
         state["step_telemetry"] = telemetry
         return state
 
@@ -252,11 +286,13 @@ class PlanRunner:
         handle = self._active_handle(state)
         self.backend.cancel(handle)
         run_path = self.store.task_path(task_id) / "runs" / run_id
-        with StateLock(run_path / 'run.lock'):
-            state = read_json(run_path / 'run.json')
-            if state['status'] in {'starting', 'preparing_models', 'running', 'cancelling'}:
-                state.update(status='cancelled', execution_status='cancelled', cleanup_pending=False, updated_at=now_iso())
-                write_json_atomic(run_path / 'run.json', state)
+        with StateLock(run_path / "run.lock"):
+            state = read_json(run_path / "run.json")
+            if state["status"] in {"starting", "preparing_models", "running", "cancelling"}:
+                state.update(
+                    status="cancelled", execution_status="cancelled", cleanup_pending=False, updated_at=now_iso()
+                )
+                write_json_atomic(run_path / "run.json", state)
         return state
 
     def cleanup(self, task_id: str, run_id: str) -> dict[str, Any]:

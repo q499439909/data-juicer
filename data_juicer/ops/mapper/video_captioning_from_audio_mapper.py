@@ -21,9 +21,7 @@ class VideoCaptioningFromAudioMapper(Mapper):
     _accelerator = "cuda"
     _batched_op = True
 
-    def __init__(
-        self, hf_qwen_audio: str = "Qwen/Qwen-Audio", keep_original_sample: bool = True, *args, **kwargs
-    ):
+    def __init__(self, hf_qwen_audio: str = "Qwen/Qwen-Audio", keep_original_sample: bool = True, *args, **kwargs):
         """
         Initialization method.
 

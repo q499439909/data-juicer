@@ -26,8 +26,9 @@ class PlanFlowError(ValueError):
 
     def to_dict(self) -> dict[str, Any]:
         from .recovery import recovery
+
         payload = {"ok": False, "error": {"code": self.code, "message": self.message}}
-        payload['workflow_state'],payload['error']['recovery_actions']=recovery(self.code)
+        payload["workflow_state"], payload["error"]["recovery_actions"] = recovery(self.code)
         if self.details is not None:
             payload["error"]["details"] = self.details
         return payload

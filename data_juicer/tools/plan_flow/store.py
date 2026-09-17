@@ -8,8 +8,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .user_operator_store import current_user
-
 from .common import (
     FileLock,
     PlanFlowError,
@@ -27,6 +25,7 @@ from .common import (
     write_text_atomic,
     write_yaml_atomic,
 )
+from .user_operator_store import current_user
 
 
 class PlanStore:
@@ -99,7 +98,7 @@ class PlanStore:
             version_path.mkdir(parents=True, exist_ok=False)
 
             saved_plan = copy.deepcopy(plan)
-            saved_plan.pop('input_snapshot', None)
+            saved_plan.pop("input_snapshot", None)
             saved_plan.update(
                 {
                     "schema_version": 1,
@@ -116,19 +115,22 @@ class PlanStore:
             saved_plan["artifacts"] = copied
             self._rewrite_postprocess_artifacts(saved_plan, copied)
 
-            if validation.get('ok') and not saved_plan.get('capability_bindings'):
+            if validation.get("ok") and not saved_plan.get("capability_bindings"):
                 from .native_inputs import freeze_inputs
+
                 original_recipe = copy.deepcopy(saved_plan["recipe"])
                 try:
                     freeze_inputs(saved_plan, version_path, self.workspace)
                 except (PlanFlowError, ValueError, OSError) as exc:
                     validation = copy.deepcopy(validation)
-                    validation['ok'] = False
-                    validation.setdefault('errors', []).append({'code':getattr(exc,'code','INPUT_SNAPSHOT_FAILED'),'message':str(exc)})
-                    saved_plan.pop('input_snapshot', None)
-                    saved_plan['recipe'] = original_recipe
+                    validation["ok"] = False
+                    validation.setdefault("errors", []).append(
+                        {"code": getattr(exc, "code", "INPUT_SNAPSHOT_FAILED"), "message": str(exc)}
+                    )
+                    saved_plan.pop("input_snapshot", None)
+                    saved_plan["recipe"] = original_recipe
                     # Only the newly allocated version's incomplete snapshot is removed.
-                    failed_input = (version_path / 'input').resolve()
+                    failed_input = (version_path / "input").resolve()
                     if is_within(failed_input, version_path) and failed_input.is_dir():
                         shutil.rmtree(failed_input)
 
@@ -282,8 +284,11 @@ class PlanStore:
     def approve(self, task_id: str, version: str, expected_hash: str, note: str) -> dict[str, Any]:
         from .task_control import controlled, trusted_decision
         from .user_operator_store import current_user
+
         if controlled() and not trusted_decision.get():
-            raise PlanFlowError('USER_DECISION_REQUIRED', 'A trusted user decision is required; use the plan approval UI')
+            raise PlanFlowError(
+                "USER_DECISION_REQUIRED", "A trusted user decision is required; use the plan approval UI"
+            )
         task_path = self.task_path(task_id)
         with FileLock(task_path / ".lock"):
             plan_path = self.plan_path(task_id, version)
@@ -322,8 +327,9 @@ class PlanStore:
         """Verify that an immutable plan and its copied artifacts were not edited."""
         path = self.plan_path(task_id, version)
         plan = read_yaml(path / "plan.yaml")
-        if plan.get('input_snapshot'):
+        if plan.get("input_snapshot"):
             from .native_inputs import verify_inputs
+
             verify_inputs(plan, path)
         artifacts = plan.get("artifacts", []) or []
         for artifact in artifacts:

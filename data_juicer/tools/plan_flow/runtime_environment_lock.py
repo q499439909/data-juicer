@@ -9,7 +9,6 @@ from pathlib import Path
 
 from .common import PlanFlowError, sha256_file
 
-
 _AUDITED_PACKAGES = {
     "data-juicer",
     "huggingface-hub",
@@ -73,7 +72,7 @@ def verify_runtime_lock(
         try:
             installed = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
-            raise PlanFlowError('RUNTIME_PACKAGE_MISSING', f'Required package {name}=={version} is not installed')
+            raise PlanFlowError("RUNTIME_PACKAGE_MISSING", f"Required package {name}=={version} is not installed")
         if installed != version:
             raise PlanFlowError(
                 "RUNTIME_PACKAGE_MISMATCH",
@@ -89,48 +88,96 @@ def inspect_plan_runtime(plan: dict) -> dict:
     """
     from packaging.markers import Marker
     from packaging.utils import canonicalize_name
+
     from .common import canonical_json, sha256_bytes
-    lock_path=project_root()/'uv.lock'
-    lock=tomllib.loads(lock_path.read_text(encoding='utf-8'))
-    packages={}
-    for item in lock.get('package',[]):
-        if item.get('resolution-markers') and not any(Marker(m).evaluate() for m in item['resolution-markers']):
+
+    lock_path = project_root() / "uv.lock"
+    lock = tomllib.loads(lock_path.read_text(encoding="utf-8"))
+    packages = {}
+    for item in lock.get("package", []):
+        if item.get("resolution-markers") and not any(Marker(m).evaluate() for m in item["resolution-markers"]):
             continue
-        packages.setdefault(canonicalize_name(item['name']),[]).append(item)
-    root_package=next((p for p in lock.get('package',[]) if p['name']=='py-data-juicer'),None)
-    roots=set()
-    for binding in plan.get('model_bindings',[]):
-        roots.update(canonicalize_name(p) for p in binding.get('runtime_packages',[]))
-        if binding.get('distribution'): roots.add(canonicalize_name(binding['distribution']))
-    queue=[*(root_package or {}).get('dependencies',[]),*[{'name':p} for p in sorted(roots)]]
-    expected={};issues=[];expanded=set()
+        packages.setdefault(canonicalize_name(item["name"]), []).append(item)
+    root_package = next((p for p in lock.get("package", []) if p["name"] == "py-data-juicer"), None)
+    roots = set()
+    for binding in plan.get("model_bindings", []):
+        roots.update(canonicalize_name(p) for p in binding.get("runtime_packages", []))
+        if binding.get("distribution"):
+            roots.add(canonicalize_name(binding["distribution"]))
+    queue = [*(root_package or {}).get("dependencies", []), *[{"name": p} for p in sorted(roots)]]
+    expected = {}
+    issues = []
+    expanded = set()
     while queue:
-        dep=queue.pop()
-        if dep.get('marker') and not Marker(dep['marker']).evaluate(): continue
-        name=canonicalize_name(dep['name'])
-        candidates=[p for p in packages.get(name,[]) if not dep.get('version') or p.get('version')==dep['version']]
-        if len(candidates)!=1:
-            issues.append({'code':'RUNTIME_LOCK_AMBIGUOUS','package':name,'message':'Required dependency does not resolve uniquely in uv.lock'})
+        dep = queue.pop()
+        if dep.get("marker") and not Marker(dep["marker"]).evaluate():
             continue
-        item=candidates[0]
-        key=(name,item.get('version'),tuple(sorted(dep.get('extra',[]))))
-        if key in expanded: continue
+        name = canonicalize_name(dep["name"])
+        candidates = [p for p in packages.get(name, []) if not dep.get("version") or p.get("version") == dep["version"]]
+        if len(candidates) != 1:
+            issues.append(
+                {
+                    "code": "RUNTIME_LOCK_AMBIGUOUS",
+                    "package": name,
+                    "message": "Required dependency does not resolve uniquely in uv.lock",
+                }
+            )
+            continue
+        item = candidates[0]
+        key = (name, item.get("version"), tuple(sorted(dep.get("extra", []))))
+        if key in expanded:
+            continue
         expanded.add(key)
-        if name in expected and expected[name]!=item.get('version'):
-            issues.append({'code':'RUNTIME_LOCK_AMBIGUOUS','package':name,'message':'Dependency versions conflict in the selected closure'})
+        if name in expected and expected[name] != item.get("version"):
+            issues.append(
+                {
+                    "code": "RUNTIME_LOCK_AMBIGUOUS",
+                    "package": name,
+                    "message": "Dependency versions conflict in the selected closure",
+                }
+            )
             continue
-        expected[name]=item['version'];queue.extend(item.get('dependencies',[]))
-        for extra in dep.get('extra',[]): queue.extend(item.get('optional-dependencies',{}).get(extra,[]))
-    observed={}
-    for name,version in sorted(expected.items()):
-        try: observed[name]=importlib.metadata.version(name)
-        except importlib.metadata.PackageNotFoundError: observed[name]=None
-        if observed[name]!=version:
-            issues.append({'code':'RUNTIME_PACKAGE_MISSING' if observed[name] is None else 'RUNTIME_PACKAGE_MISMATCH',
-                           'package':name,'expected':version,'installed':observed[name],
-                           'message':f'{name}: expected {version}, installed {observed[name]}'})
-    identity={'lock_sha256':sha256_file(lock_path),'python':f'{sys.version_info.major}.{sys.version_info.minor}', 'packages':expected}
-    return {'ok':not issues,'runtime_id':sha256_bytes(canonical_json(identity)), 'manifest':identity,
-            'installed':observed,'blocking_issues':issues,
-            'recovery_actions':[] if not issues else [{'action':'restore_locked_runtime','scope':'maintenance','requires_shared_environment_authority':True,
-                'message':'Build or restore an isolated environment from this uv.lock, verify this closure, then retry the same immutable Plan. Do not rewrite uv.lock to match drift.'}]}
+        expected[name] = item["version"]
+        queue.extend(item.get("dependencies", []))
+        for extra in dep.get("extra", []):
+            queue.extend(item.get("optional-dependencies", {}).get(extra, []))
+    observed = {}
+    for name, version in sorted(expected.items()):
+        try:
+            observed[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            observed[name] = None
+        if observed[name] != version:
+            issues.append(
+                {
+                    "code": "RUNTIME_PACKAGE_MISSING" if observed[name] is None else "RUNTIME_PACKAGE_MISMATCH",
+                    "package": name,
+                    "expected": version,
+                    "installed": observed[name],
+                    "message": f"{name}: expected {version}, installed {observed[name]}",
+                }
+            )
+    identity = {
+        "lock_sha256": sha256_file(lock_path),
+        "python": f"{sys.version_info.major}.{sys.version_info.minor}",
+        "packages": expected,
+    }
+    return {
+        "ok": not issues,
+        "runtime_id": sha256_bytes(canonical_json(identity)),
+        "manifest": identity,
+        "installed": observed,
+        "blocking_issues": issues,
+        "recovery_actions": (
+            []
+            if not issues
+            else [
+                {
+                    "action": "restore_locked_runtime",
+                    "scope": "maintenance",
+                    "requires_shared_environment_authority": True,
+                    "message": "Build or restore an isolated environment from this uv.lock, verify this closure, then retry the same immutable Plan. Do not rewrite uv.lock to match drift.",
+                }
+            ]
+        ),
+    }

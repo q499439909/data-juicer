@@ -28,11 +28,13 @@ def write_result_manifest(
         if path.is_symlink():
             raise PlanFlowError("OUTPUT_SYMLINK_NOT_ALLOWED", f"Output contains a symbolic link: {relative}")
         if path.is_file():
-            outputs.append({
-                "path": relative.as_posix(),
-                "size_bytes": path.stat().st_size,
-                "sha256": sha256_file(path),
-            })
+            outputs.append(
+                {
+                    "path": relative.as_posix(),
+                    "size_bytes": path.stat().st_size,
+                    "sha256": sha256_file(path),
+                }
+            )
     manifest = {
         **(metadata or {}),
         "schema_version": 1,

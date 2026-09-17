@@ -24,8 +24,8 @@ from ..common import (
     write_json_atomic,
     write_yaml_atomic,
 )
-from ..model_store import LocalModelStore
 from ..dataset_artifacts import DatasetSnapshotter
+from ..model_store import LocalModelStore
 from ..store import PlanStore
 from .spec import RunHandle, RunResult, RunStatus, RuntimeSpec
 
@@ -99,7 +99,9 @@ class DockerBackend:
     ):
         self.workspace = require_workspace(workspace_root)
         self.worker_root = Path(worker_root).resolve()
-        if self.worker_root.parent == self.worker_root or any(character in str(self.worker_root) for character in (",", "\n", "\r")):
+        if self.worker_root.parent == self.worker_root or any(
+            character in str(self.worker_root) for character in (",", "\n", "\r")
+        ):
             raise PlanFlowError("INVALID_WORKER_ROOT", "Docker worker root must be a concrete mount-safe directory")
         self.worker_root.mkdir(parents=True, exist_ok=True)
         if self.worker_root == self.workspace or is_within(self.worker_root, self.workspace):
@@ -170,13 +172,21 @@ class DockerBackend:
 
     def discover_managed_runs(self) -> tuple[DockerManagedRun, ...]:
         """Find this backend's containers without exposing Docker identity upstream."""
-        listed = self._docker([
-            "ps", "-a", "--no-trunc", "--filter", "label=dj.managed=true",
-            "--filter", f"label=dj.tenant-id={self.tenant_id}", "--format", "{{.ID}}",
-        ])
+        listed = self._docker(
+            [
+                "ps",
+                "-a",
+                "--no-trunc",
+                "--filter",
+                "label=dj.managed=true",
+                "--filter",
+                f"label=dj.tenant-id={self.tenant_id}",
+                "--format",
+                "{{.ID}}",
+            ]
+        )
         container_ids = {
-            line.strip() for line in listed.stdout.splitlines()
-            if re.fullmatch(r"[0-9a-f]{12,64}", line.strip())
+            line.strip() for line in listed.stdout.splitlines() if re.fullmatch(r"[0-9a-f]{12,64}", line.strip())
         }
         if not container_ids:
             return ()
@@ -233,7 +243,11 @@ class DockerBackend:
             return RunStatus("running", _now())
         if status in {"exited", "dead", "removing"}:
             self._capture_terminal(record, state)
-            terminal = "cancelled" if record.get("cancellation_requested") else "succeeded" if record["exit_code"] == 0 else "failed"
+            terminal = (
+                "cancelled"
+                if record.get("cancellation_requested")
+                else "succeeded" if record["exit_code"] == 0 else "failed"
+            )
             record["status"] = terminal
             record["finished_at"] = _now().isoformat()
             self._save_record(handle.backend_ref, record)
@@ -266,8 +280,12 @@ class DockerBackend:
                 record.update({"status": "failed", "error_code": exc.code, "error": exc.message})
                 self._save_record(handle.backend_ref, record)
                 return RunResult(
-                    "failed", _now(), exit_code=record.get("exit_code"), error_code=exc.code,
-                    error=exc.message, provenance=provenance,
+                    "failed",
+                    _now(),
+                    exit_code=record.get("exit_code"),
+                    error_code=exc.code,
+                    error=exc.message,
+                    provenance=provenance,
                 )
         error_code = record.get("error_code")
         error = record.get("error") or status.message
@@ -280,8 +298,12 @@ class DockerBackend:
         elif status.status == "failed":
             error_code = error_code or _EXIT_ERRORS.get(record.get("exit_code"), "EXECUTION_FAILED")
         return RunResult(
-            status.status, _now(), exit_code=record.get("exit_code"), error_code=error_code,
-            error=error, provenance=provenance,
+            status.status,
+            _now(),
+            exit_code=record.get("exit_code"),
+            error_code=error_code,
+            error=error,
+            provenance=provenance,
         )
 
     def cleanup(self, handle: RunHandle) -> None:
@@ -322,10 +344,14 @@ class DockerBackend:
     def _stage_run(self, spec: RuntimeSpec, run_root: Path) -> dict[str, Any]:
         plan = PlanStore(self.workspace).get_plan(spec.task_id, spec.plan_version)["plan"]
         if plan.get("postprocess"):
-            raise PlanFlowError("DOCKER_POSTPROCESS_UNSUPPORTED", "Docker backend does not yet support postprocess scripts")
+            raise PlanFlowError(
+                "DOCKER_POSTPROCESS_UNSUPPORTED", "Docker backend does not yet support postprocess scripts"
+            )
         recipe = read_yaml(Path(spec.recipe_path))
         if recipe.get("executor_type", "default") != "default":
-            raise PlanFlowError("DOCKER_EXECUTOR_UNSUPPORTED", "Docker backend currently supports executor_type=default")
+            raise PlanFlowError(
+                "DOCKER_EXECUTOR_UNSUPPORTED", "Docker backend currently supports executor_type=default"
+            )
         if recipe.get("custom_operator_paths"):
             raise PlanFlowError("DOCKER_CUSTOM_OPERATOR_UNSUPPORTED", "Custom operators are not mounted yet")
         model_records = self._resolve_models(plan)
@@ -371,12 +397,14 @@ class DockerBackend:
             "tenant_id": self.tenant_id,
             "recipe": {"path": "/run/bundle/materialized-recipe.yaml", "sha256": _sha256_file(materialized)},
             "mounts": {
-                "input": "/workspace/input", "bundle": "/run/bundle", "output": "/workspace/output",
-                "work": "/run/work", "temp": "/tmp",
+                "input": "/workspace/input",
+                "bundle": "/run/bundle",
+                "output": "/workspace/output",
+                "work": "/run/work",
+                "temp": "/tmp",
             },
             "models": [
-                {"artifact_id": item["artifact_id"], "path": f"/models/{item['artifact_id']}"}
-                for item in model_records
+                {"artifact_id": item["artifact_id"], "path": f"/models/{item['artifact_id']}"} for item in model_records
             ],
         }
         write_json_atomic(dirs["bundle"] / "run-spec.json", run_spec)
@@ -462,17 +490,45 @@ class DockerBackend:
     def _create_args(self, spec: RuntimeSpec, record: dict[str, Any], dirs: dict[str, Any]) -> list[str]:
         memory = str(self.limits.memory_bytes)
         args = [
-            "create", "--name", record["container_name"],
-            "--label", "dj.managed=true", "--label", f"dj.run-id={spec.run_id}",
-            "--label", f"dj.backend-ref={record['backend_ref']}", "--label", f"dj.task-id={spec.task_id}",
-            "--label", f"dj.tenant-id={self.tenant_id}",
-            "--user", "10001:10001", "--read-only", "--network", "none", "--cap-drop", "ALL",
-            "--security-opt", "no-new-privileges:true", "--pids-limit", str(self.limits.pids_limit),
-            "--cpus", str(self.limits.cpus), "--memory", memory, "--memory-swap", memory,
-            "--tmpfs", f"/tmp:rw,noexec,nosuid,size={self.limits.tmpfs_bytes}",
+            "create",
+            "--name",
+            record["container_name"],
+            "--label",
+            "dj.managed=true",
+            "--label",
+            f"dj.run-id={spec.run_id}",
+            "--label",
+            f"dj.backend-ref={record['backend_ref']}",
+            "--label",
+            f"dj.task-id={spec.task_id}",
+            "--label",
+            f"dj.tenant-id={self.tenant_id}",
+            "--user",
+            "10001:10001",
+            "--read-only",
+            "--network",
+            "none",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges:true",
+            "--pids-limit",
+            str(self.limits.pids_limit),
+            "--cpus",
+            str(self.limits.cpus),
+            "--memory",
+            memory,
+            "--memory-swap",
+            memory,
+            "--tmpfs",
+            f"/tmp:rw,noexec,nosuid,size={self.limits.tmpfs_bytes}",
         ]
-        mounts = (("input", "/workspace/input", True), ("bundle", "/run/bundle", True),
-                  ("output", "/workspace/output", False), ("work", "/run/work", False))
+        mounts = (
+            ("input", "/workspace/input", True),
+            ("bundle", "/run/bundle", True),
+            ("output", "/workspace/output", False),
+            ("work", "/run/work", False),
+        )
         for name, destination, readonly in mounts:
             source = dirs[name].resolve()
             if not is_within(source, self.worker_root):
@@ -484,9 +540,7 @@ class DockerBackend:
             expected_root = (self.worker_root / "models").resolve()
             if source.parent != expected_root or source.name != model["artifact_id"]:
                 raise PlanFlowError("INVALID_BACKEND_STATE", "Published model path escaped ModelStore")
-            args.extend(
-                ["--mount", f"type=bind,src={source},dst=/models/{model['artifact_id']},readonly"]
-            )
+            args.extend(["--mount", f"type=bind,src={source},dst=/models/{model['artifact_id']},readonly"])
         args.extend([record["image_id"], "--run-spec", "/run/bundle/run-spec.json"])
         return args
 
@@ -527,11 +581,13 @@ class DockerBackend:
         inspected = self._container_inspect(record)
         if inspected:
             self._capture_terminal(record, inspected.get("State") or {})
-        record.update({
-            "status": "failed" if timed_out else "cancelled",
-            "timed_out": timed_out,
-            "finished_at": _now().isoformat(),
-        })
+        record.update(
+            {
+                "status": "failed" if timed_out else "cancelled",
+                "timed_out": timed_out,
+                "finished_at": _now().isoformat(),
+            }
+        )
         self._save_record(record["backend_ref"], record)
 
     def _capture_logs(self, record: dict[str, Any]) -> None:
@@ -556,7 +612,11 @@ class DockerBackend:
         if not manifest_path.is_file() or manifest_path.is_symlink():
             raise PlanFlowError("RESULT_MANIFEST_MISSING", "Successful container did not produce a result manifest")
         manifest = read_json(manifest_path)
-        if manifest.get("schema_version") != 1 or manifest.get("run_id") != record["run_id"] or manifest.get("status") != "succeeded":
+        if (
+            manifest.get("schema_version") != 1
+            or manifest.get("run_id") != record["run_id"]
+            or manifest.get("status") != "succeeded"
+        ):
             raise PlanFlowError("INVALID_RESULT_MANIFEST", "Result manifest identity or status is invalid")
         outputs = manifest.get("outputs")
         if not isinstance(outputs, list) or manifest.get("output_count") != len(outputs):
@@ -626,8 +686,12 @@ class DockerBackend:
                 return None
             raise PlanFlowError("RUNNER_LOST", f"Docker backend state is missing: {handle.run_id}")
         record = read_json(path)
-        if (record.get("schema_version") != 1 or record.get("backend") != self.name
-                or record.get("backend_ref") != handle.backend_ref or record.get("run_id") != handle.run_id):
+        if (
+            record.get("schema_version") != 1
+            or record.get("backend") != self.name
+            or record.get("backend_ref") != handle.backend_ref
+            or record.get("run_id") != handle.run_id
+        ):
             raise PlanFlowError("INVALID_BACKEND_STATE", "Docker backend state does not match RunHandle")
         spec = RuntimeSpec.from_dict(record.get("runtime_spec"))
         if handle.created_at != spec.created_at or handle.deadline != spec.deadline:

@@ -2,14 +2,26 @@
 
 from __future__ import annotations
 
-import re
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from .capability_schema import ArtifactRef, CapabilityCatalog, OperatorArtifact, OperatorArtifactCatalog
-from .common import FileLock, PlanFlowError, canonical_json, read_json, sha256_bytes, write_json_atomic
+from .capability_schema import (
+    ArtifactRef,
+    CapabilityCatalog,
+    OperatorArtifact,
+    OperatorArtifactCatalog,
+)
+from .common import (
+    FileLock,
+    PlanFlowError,
+    canonical_json,
+    read_json,
+    sha256_bytes,
+    write_json_atomic,
+)
 from .runtime_manifest import RuntimeCatalog, RuntimeManifest
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -107,13 +119,15 @@ class RuntimeResolver:
         model_refs = self._merge_models(models)
         dependencies = self._merge_dependencies(artifacts)
         dependency_lock_hash = sha256_bytes(
-            canonical_json({
-                "artifact_locks": [
-                    {"artifact_id": item.artifact_id, "dependency_lock_hash": item.dependency_lock_hash}
-                    for item in artifacts
-                ],
-                "pins": [item.to_dict() for item in dependencies],
-            })
+            canonical_json(
+                {
+                    "artifact_locks": [
+                        {"artifact_id": item.artifact_id, "dependency_lock_hash": item.dependency_lock_hash}
+                        for item in artifacts
+                    ],
+                    "pins": [item.to_dict() for item in dependencies],
+                }
+            )
         )
         operator_refs = tuple(ArtifactRef(item.artifact_id, item.content_hash) for item in artifacts)
         composition = {
@@ -160,7 +174,9 @@ class RuntimeResolver:
                 profile_family=profile_family,
             )
             self.runtimes.publish(manifest)
-            write_json_atomic(index, {"schema_version": 1, "composition_hash": composition_hash, "runtime_id": manifest.runtime_id})
+            write_json_atomic(
+                index, {"schema_version": 1, "composition_hash": composition_hash, "runtime_id": manifest.runtime_id}
+            )
             return manifest
 
     def _merge_dependencies(self, artifacts: tuple[OperatorArtifact, ...]) -> tuple[DependencyPin, ...]:

@@ -27,10 +27,16 @@ def consumer(operator, parameter, default, *, when=None, subpath=None):
 
 
 HF_MODELS = {
-    "CompVis/stable-diffusion-v1-4": [consumer("image_diffusion_mapper", "hf_diffusion", "CompVis/stable-diffusion-v1-4")],
+    "CompVis/stable-diffusion-v1-4": [
+        consumer("image_diffusion_mapper", "hf_diffusion", "CompVis/stable-diffusion-v1-4")
+    ],
     "DAMO-NLP-SG/VideoLLaMA3-7B": [
-        consumer("video_captioning_face_attribute_emotion_mapper", "video_describe_model_path", "DAMO-NLP-SG/VideoLLaMA3-7B"),
-        consumer("video_captioning_from_human_tracks_mapper", "video_describe_model_path", "DAMO-NLP-SG/VideoLLaMA3-7B"),
+        consumer(
+            "video_captioning_face_attribute_emotion_mapper", "video_describe_model_path", "DAMO-NLP-SG/VideoLLaMA3-7B"
+        ),
+        consumer(
+            "video_captioning_from_human_tracks_mapper", "video_describe_model_path", "DAMO-NLP-SG/VideoLLaMA3-7B"
+        ),
     ],
     "EleutherAI/pythia-6.9b-deduped": [
         consumer("alphanumeric_filter", "hf_tokenizer", "EleutherAI/pythia-6.9b-deduped", when={"tokenization": True}),
@@ -60,26 +66,38 @@ HF_MODELS = {
     ],
     "Qwen/Qwen2.5-7B-Instruct": [
         consumer("generate_qa_from_examples_mapper", "hf_model", "Qwen/Qwen2.5-7B-Instruct"),
-        consumer("llm_ray_vllm_engine_pipeline", "api_or_hf_model", "Qwen/Qwen2.5-7B-Instruct", when={"is_hf_model": True}),
+        consumer(
+            "llm_ray_vllm_engine_pipeline", "api_or_hf_model", "Qwen/Qwen2.5-7B-Instruct", when={"is_hf_model": True}
+        ),
         consumer("optimize_prompt_mapper", "api_or_hf_model", "Qwen/Qwen2.5-7B-Instruct", when={"is_hf_model": True}),
         consumer("optimize_qa_mapper", "api_or_hf_model", "Qwen/Qwen2.5-7B-Instruct", when={"is_hf_model": True}),
         consumer("optimize_query_mapper", "api_or_hf_model", "Qwen/Qwen2.5-7B-Instruct", when={"is_hf_model": True}),
         consumer("optimize_response_mapper", "api_or_hf_model", "Qwen/Qwen2.5-7B-Instruct", when={"is_hf_model": True}),
         consumer("text_tagging_by_prompt_mapper", "hf_model", "Qwen/Qwen2.5-7B-Instruct"),
-        consumer("vlm_ray_vllm_engine_pipeline", "api_or_hf_model", "Qwen/Qwen2.5-7B-Instruct", when={"is_hf_model": True}),
+        consumer(
+            "vlm_ray_vllm_engine_pipeline", "api_or_hf_model", "Qwen/Qwen2.5-7B-Instruct", when={"is_hf_model": True}
+        ),
     ],
     "Qwen/Qwen2.5-VL-7B-Instruct": [
-        consumer("image_tagging_vlm_mapper", "api_or_hf_model", "Qwen/Qwen2.5-VL-7B-Instruct", when={"is_api_model": False})
+        consumer(
+            "image_tagging_vlm_mapper", "api_or_hf_model", "Qwen/Qwen2.5-VL-7B-Instruct", when={"is_api_model": False}
+        )
     ],
-    "Qwen/Qwen3-VL-8B-Instruct": [consumer("video_captioning_from_vlm_mapper", "hf_model", "Qwen/Qwen3-VL-8B-Instruct")],
+    "Qwen/Qwen3-VL-8B-Instruct": [
+        consumer("video_captioning_from_vlm_mapper", "hf_model", "Qwen/Qwen3-VL-8B-Instruct")
+    ],
     "Ruicheng/moge-2-vitl": [consumer("video_camera_calibration_moge_mapper", "model_path", "Ruicheng/moge-2-vitl")],
-    "Salesforce/blip-itm-base-coco": [consumer("image_text_matching_filter", "hf_blip", "Salesforce/blip-itm-base-coco")],
+    "Salesforce/blip-itm-base-coco": [
+        consumer("image_text_matching_filter", "hf_blip", "Salesforce/blip-itm-base-coco")
+    ],
     "Salesforce/blip2-opt-2.7b": [
         consumer("image_captioning_mapper", "hf_img2seq", "Salesforce/blip2-opt-2.7b"),
         consumer("image_diffusion_mapper", "hf_img2seq", "Salesforce/blip2-opt-2.7b", when={"caption_key": None}),
         consumer("video_captioning_from_frames_mapper", "hf_img2seq", "Salesforce/blip2-opt-2.7b"),
     ],
-    "alibaba-pai/pai-qwen1_5-7b-doc2qa": [consumer("generate_qa_from_text_mapper", "hf_model", "alibaba-pai/pai-qwen1_5-7b-doc2qa")],
+    "alibaba-pai/pai-qwen1_5-7b-doc2qa": [
+        consumer("generate_qa_from_text_mapper", "hf_model", "alibaba-pai/pai-qwen1_5-7b-doc2qa")
+    ],
     "amrul-hzz/watermark_detector": [
         consumer("image_watermark_filter", "hf_watermark_model", "amrul-hzz/watermark_detector"),
         consumer("video_watermark_filter", "hf_watermark_model", "amrul-hzz/watermark_detector"),
@@ -88,21 +106,31 @@ HF_MODELS = {
         consumer("video_audio_detect_age_gender_mapper", "hf_audio_mapper", None)
     ],
     "bespin-global/klue-roberta-small-3i4k-intent-classification": [
-        consumer("query_intent_detection_mapper", "hf_model", "bespin-global/klue-roberta-small-3i4k-intent-classification")
+        consumer(
+            "query_intent_detection_mapper", "hf_model", "bespin-global/klue-roberta-small-3i4k-intent-classification"
+        )
     ],
     "dstefa/roberta-base_topic_classification_nyt_news": [
         consumer("query_topic_detection_mapper", "hf_model", "dstefa/roberta-base_topic_classification_nyt_news")
     ],
     "facebook/VGGT-1B": [consumer("vggt_mapper", "vggt_model_path", "facebook/VGGT-1B")],
     "facebook/sam-3d-body-dinov3": [],
-    "facebook/sam2.1-hiera-tiny": [consumer("video_object_segmenting_mapper", "sam2_hf_model", "facebook/sam2.1-hiera-tiny")],
-    "google/owlvit-base-patch32": [consumer("phrase_grounding_recall_filter", "hf_owlvit", "google/owlvit-base-patch32")],
+    "facebook/sam2.1-hiera-tiny": [
+        consumer("video_object_segmenting_mapper", "sam2_hf_model", "facebook/sam2.1-hiera-tiny")
+    ],
+    "google/owlvit-base-patch32": [
+        consumer("phrase_grounding_recall_filter", "hf_owlvit", "google/owlvit-base-patch32")
+    ],
     "kpyu/video-blip-opt-2.7b-ego4d": [
         consumer("video_captioning_from_video_mapper", "hf_video_blip", "kpyu/video-blip-opt-2.7b-ego4d")
     ],
     "llava-hf/llava-v1.6-vicuna-7b-hf": [consumer("mllm_mapper", "hf_model", "llava-hf/llava-v1.6-vicuna-7b-hf")],
     "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis": [
-        consumer("query_sentiment_detection_mapper", "hf_model", "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis")
+        consumer(
+            "query_sentiment_detection_mapper",
+            "hf_model",
+            "mrm8488/distilroberta-finetuned-financial-news-sentiment-analysis",
+        )
     ],
     "mrm8488/flan-t5-large-finetuned-openai-summarize_from_feedback": [
         consumer("video_captioning_from_summarizer_mapper", "hf_summarizer", None)
@@ -208,7 +236,9 @@ BLOCKED_REQUIREMENTS.extend(
         blocked_language_resource("stopwords_filter", "sentencepiece", when={"tokenization": True}),
         blocked_language_resource("word_repetition_filter", "sentencepiece", when={"tokenization": True}),
         blocked_language_resource("words_num_filter", "sentencepiece", when={"tokenization": True}),
-        blocked_language_resource("remove_words_with_incorrect_substrings_mapper", "sentencepiece", when={"tokenization": True}),
+        blocked_language_resource(
+            "remove_words_with_incorrect_substrings_mapper", "sentencepiece", when={"tokenization": True}
+        ),
         blocked_language_resource("sentence_split_mapper", "nltk"),
         blocked_language_resource("phrase_grounding_recall_filter", "nltk_pos_tagger"),
         blocked_language_resource("text_action_filter", "spacy"),
@@ -324,20 +354,163 @@ def hf_file(lock_id, repo_id, revision, path, size, sha256, operator, parameter,
 
 HTTP_MODELS.extend(
     [
-        hf_file("hf-file-dwpose-yolox-l-7860ae79de6c", "yzd-v/DWPose", "1a7144101628d69ee7a3768d1ee3a094070dc388", "yolox_l.onnx", 216746733, "7860ae79de6c89a3c1eb72ae9a2756c0ccfbe04b7791bb5880afabd97855a411", "video_whole_body_pose_estimation_mapper", "onnx_det_model", "yolox_l.onnx"),
-        hf_file("hf-file-dwpose-pose-724f4ff2439e", "yzd-v/DWPose", "1a7144101628d69ee7a3768d1ee3a094070dc388", "dw-ll_ucoco_384.onnx", 134399116, "724f4ff2439ed61afb86fb8a1951ec39c6220682803b4a8bd4f598cd913b1843", "video_whole_body_pose_estimation_mapper", "onnx_pose_model", "dw-ll_ucoco_384.onnx"),
-        hf_file("hf-file-vda-small-13379300b739", "depth-anything/Video-Depth-Anything-Small", "256875362cff76724b920335dfb4b29dd611f66e", "video_depth_anything_vits.pth", 116440756, "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609", "video_depth_estimation_mapper", "video_depth_model_path", "video_depth_anything_vits.pth"),
-        hf_file("hf-file-vda-base-775e578e8f94", "depth-anything/Video-Depth-Anything-Base", "7231d0c6e260f54f103eba5005d01f6efa4f43db", "video_depth_anything_vitb.pth", 458247082, "775e578e8f9431ec0496514aa466bd0a1f67c28d0f518267809f35a43c04329b", "video_depth_estimation_mapper", "video_depth_model_path", "video_depth_anything_vitb.pth"),
-        hf_file("hf-file-vda-large-43df27c6b396", "depth-anything/Video-Depth-Anything-Large", "7aafbcb5c6af0bac741aad2b6471894fb4761afa", "video_depth_anything_vitl.pth", 1538392012, "43df27c6b396042ba34ff7b798ab279f64d204d2e86d7a373968f8fa36d0e6fa", "video_depth_estimation_mapper", "video_depth_model_path", "video_depth_anything_vitl.pth"),
-        hf_file("hf-file-metric-vda-small-3c28432b4e1f", "depth-anything/Metric-Video-Depth-Anything-Small", "273d090f2ce17df50c2872d82c8322c45da5b4dd", "metric_video_depth_anything_vits.pth", 116444063, "3c28432b4e1f0d7bb31cad5151b6313b49457db5aa58d82e85bfb0f8b1311b33", "video_depth_estimation_mapper", "video_depth_model_path", "metric_video_depth_anything_vits.pth"),
-        hf_file("hf-file-metric-vda-base-f6f58576b968", "depth-anything/Metric-Video-Depth-Anything-Base", "f6a245abad4b5a5b0d26722c8e1767ef310c547d", "metric_video_depth_anything_vitb.pth", 458249567, "f6f58576b9680a112f2428d4f39aff92656d3ae85745b0164675ace8d5b1fade", "video_depth_estimation_mapper", "video_depth_model_path", "metric_video_depth_anything_vitb.pth"),
-        hf_file("hf-file-metric-vda-large-24eba25342e7", "depth-anything/Metric-Video-Depth-Anything-Large", "607fcdbd454b95c3bd39abbd3054142869a527d3", "metric_video_depth_anything_vitl.pth", 1538348216, "24eba25342e7ee0f054be25da6a852ebd7cfa40cd6bf41a353ecb6abfe24e620", "video_depth_estimation_mapper", "video_depth_model_path", "metric_video_depth_anything_vitl.pth"),
-        hf_file("hf-file-wilor-model-3e97aafc7dd0", "rolpotamias/WiLoR", "99fe3d7acff8104ecca1055df7467709506c2fa6", "pretrained_models/wilor_final.ckpt", 2564989533, "3e97aafc7dd08d883a4cc5a027df61fdb6fda6136dbd1319405413862ada6bb2", "video_hand_reconstruction_mapper", "wilor_model_path", "wilor_final.ckpt", repo_type="spaces"),
-        hf_file("hf-file-wilor-config-f69cb52704df", "rolpotamias/WiLoR", "99fe3d7acff8104ecca1055df7467709506c2fa6", "pretrained_models/model_config.yaml", 2233, "f69cb52704df88ef29a7cfe03f35a677a92c1ce08169b729ca7f5862f05d4297", "video_hand_reconstruction_mapper", "wilor_model_config", "model_config.yaml", repo_type="spaces"),
-        hf_file("hf-file-wilor-detector-5ef3df44e42d", "rolpotamias/WiLoR", "99fe3d7acff8104ecca1055df7467709506c2fa6", "pretrained_models/detector.pt", 53582271, "5ef3df44e42d2db52d4ffe91f83a22ce9925e2acc9abebf453f2c5d22e380033", "video_hand_reconstruction_mapper", "detector_model_path", "detector.pt", repo_type="spaces"),
-        hf_file("hf-file-hawor-model-4d1cc43853c1", "ThunderVVV/HaWoR", "da6335f47f9806308992d5ae1002a4cc5f7252c2", "hawor/checkpoints/hawor.ckpt", 3267481572, "4d1cc43853c190d6f2c10d9b6295c73109f0faf9ef41ac817a2b31d94b4823f2", "video_hand_reconstruction_hawor_mapper", "hawor_model_path", "hawor.ckpt"),
-        hf_file("hf-file-hawor-config-edfe12dc14ce", "ThunderVVV/HaWoR", "da6335f47f9806308992d5ae1002a4cc5f7252c2", "hawor/model_config.yaml", 2743, "edfe12dc14ce371d698da722b59acfed5b4a38a7f8f5116cbc1fce459a07dd2d", "video_hand_reconstruction_hawor_mapper", "hawor_config_path", "model_config.yaml"),
-        hf_file("hf-file-hawor-detector-5ef3df44e42d", "ThunderVVV/HaWoR", "da6335f47f9806308992d5ae1002a4cc5f7252c2", "external/detector.pt", 53582271, "5ef3df44e42d2db52d4ffe91f83a22ce9925e2acc9abebf453f2c5d22e380033", "video_hand_reconstruction_hawor_mapper", "hawor_detector_path", "detector.pt"),
+        hf_file(
+            "hf-file-dwpose-yolox-l-7860ae79de6c",
+            "yzd-v/DWPose",
+            "1a7144101628d69ee7a3768d1ee3a094070dc388",
+            "yolox_l.onnx",
+            216746733,
+            "7860ae79de6c89a3c1eb72ae9a2756c0ccfbe04b7791bb5880afabd97855a411",
+            "video_whole_body_pose_estimation_mapper",
+            "onnx_det_model",
+            "yolox_l.onnx",
+        ),
+        hf_file(
+            "hf-file-dwpose-pose-724f4ff2439e",
+            "yzd-v/DWPose",
+            "1a7144101628d69ee7a3768d1ee3a094070dc388",
+            "dw-ll_ucoco_384.onnx",
+            134399116,
+            "724f4ff2439ed61afb86fb8a1951ec39c6220682803b4a8bd4f598cd913b1843",
+            "video_whole_body_pose_estimation_mapper",
+            "onnx_pose_model",
+            "dw-ll_ucoco_384.onnx",
+        ),
+        hf_file(
+            "hf-file-vda-small-13379300b739",
+            "depth-anything/Video-Depth-Anything-Small",
+            "256875362cff76724b920335dfb4b29dd611f66e",
+            "video_depth_anything_vits.pth",
+            116440756,
+            "13379300b739e659f076a59d52e9801bd8d38c541a7e71f73bbca4dcfb013609",
+            "video_depth_estimation_mapper",
+            "video_depth_model_path",
+            "video_depth_anything_vits.pth",
+        ),
+        hf_file(
+            "hf-file-vda-base-775e578e8f94",
+            "depth-anything/Video-Depth-Anything-Base",
+            "7231d0c6e260f54f103eba5005d01f6efa4f43db",
+            "video_depth_anything_vitb.pth",
+            458247082,
+            "775e578e8f9431ec0496514aa466bd0a1f67c28d0f518267809f35a43c04329b",
+            "video_depth_estimation_mapper",
+            "video_depth_model_path",
+            "video_depth_anything_vitb.pth",
+        ),
+        hf_file(
+            "hf-file-vda-large-43df27c6b396",
+            "depth-anything/Video-Depth-Anything-Large",
+            "7aafbcb5c6af0bac741aad2b6471894fb4761afa",
+            "video_depth_anything_vitl.pth",
+            1538392012,
+            "43df27c6b396042ba34ff7b798ab279f64d204d2e86d7a373968f8fa36d0e6fa",
+            "video_depth_estimation_mapper",
+            "video_depth_model_path",
+            "video_depth_anything_vitl.pth",
+        ),
+        hf_file(
+            "hf-file-metric-vda-small-3c28432b4e1f",
+            "depth-anything/Metric-Video-Depth-Anything-Small",
+            "273d090f2ce17df50c2872d82c8322c45da5b4dd",
+            "metric_video_depth_anything_vits.pth",
+            116444063,
+            "3c28432b4e1f0d7bb31cad5151b6313b49457db5aa58d82e85bfb0f8b1311b33",
+            "video_depth_estimation_mapper",
+            "video_depth_model_path",
+            "metric_video_depth_anything_vits.pth",
+        ),
+        hf_file(
+            "hf-file-metric-vda-base-f6f58576b968",
+            "depth-anything/Metric-Video-Depth-Anything-Base",
+            "f6a245abad4b5a5b0d26722c8e1767ef310c547d",
+            "metric_video_depth_anything_vitb.pth",
+            458249567,
+            "f6f58576b9680a112f2428d4f39aff92656d3ae85745b0164675ace8d5b1fade",
+            "video_depth_estimation_mapper",
+            "video_depth_model_path",
+            "metric_video_depth_anything_vitb.pth",
+        ),
+        hf_file(
+            "hf-file-metric-vda-large-24eba25342e7",
+            "depth-anything/Metric-Video-Depth-Anything-Large",
+            "607fcdbd454b95c3bd39abbd3054142869a527d3",
+            "metric_video_depth_anything_vitl.pth",
+            1538348216,
+            "24eba25342e7ee0f054be25da6a852ebd7cfa40cd6bf41a353ecb6abfe24e620",
+            "video_depth_estimation_mapper",
+            "video_depth_model_path",
+            "metric_video_depth_anything_vitl.pth",
+        ),
+        hf_file(
+            "hf-file-wilor-model-3e97aafc7dd0",
+            "rolpotamias/WiLoR",
+            "99fe3d7acff8104ecca1055df7467709506c2fa6",
+            "pretrained_models/wilor_final.ckpt",
+            2564989533,
+            "3e97aafc7dd08d883a4cc5a027df61fdb6fda6136dbd1319405413862ada6bb2",
+            "video_hand_reconstruction_mapper",
+            "wilor_model_path",
+            "wilor_final.ckpt",
+            repo_type="spaces",
+        ),
+        hf_file(
+            "hf-file-wilor-config-f69cb52704df",
+            "rolpotamias/WiLoR",
+            "99fe3d7acff8104ecca1055df7467709506c2fa6",
+            "pretrained_models/model_config.yaml",
+            2233,
+            "f69cb52704df88ef29a7cfe03f35a677a92c1ce08169b729ca7f5862f05d4297",
+            "video_hand_reconstruction_mapper",
+            "wilor_model_config",
+            "model_config.yaml",
+            repo_type="spaces",
+        ),
+        hf_file(
+            "hf-file-wilor-detector-5ef3df44e42d",
+            "rolpotamias/WiLoR",
+            "99fe3d7acff8104ecca1055df7467709506c2fa6",
+            "pretrained_models/detector.pt",
+            53582271,
+            "5ef3df44e42d2db52d4ffe91f83a22ce9925e2acc9abebf453f2c5d22e380033",
+            "video_hand_reconstruction_mapper",
+            "detector_model_path",
+            "detector.pt",
+            repo_type="spaces",
+        ),
+        hf_file(
+            "hf-file-hawor-model-4d1cc43853c1",
+            "ThunderVVV/HaWoR",
+            "da6335f47f9806308992d5ae1002a4cc5f7252c2",
+            "hawor/checkpoints/hawor.ckpt",
+            3267481572,
+            "4d1cc43853c190d6f2c10d9b6295c73109f0faf9ef41ac817a2b31d94b4823f2",
+            "video_hand_reconstruction_hawor_mapper",
+            "hawor_model_path",
+            "hawor.ckpt",
+        ),
+        hf_file(
+            "hf-file-hawor-config-edfe12dc14ce",
+            "ThunderVVV/HaWoR",
+            "da6335f47f9806308992d5ae1002a4cc5f7252c2",
+            "hawor/model_config.yaml",
+            2743,
+            "edfe12dc14ce371d698da722b59acfed5b4a38a7f8f5116cbc1fce459a07dd2d",
+            "video_hand_reconstruction_hawor_mapper",
+            "hawor_config_path",
+            "model_config.yaml",
+        ),
+        hf_file(
+            "hf-file-hawor-detector-5ef3df44e42d",
+            "ThunderVVV/HaWoR",
+            "da6335f47f9806308992d5ae1002a4cc5f7252c2",
+            "external/detector.pt",
+            53582271,
+            "5ef3df44e42d2db52d4ffe91f83a22ce9925e2acc9abebf453f2c5d22e380033",
+            "video_hand_reconstruction_hawor_mapper",
+            "hawor_detector_path",
+            "detector.pt",
+        ),
     ]
 )
 
