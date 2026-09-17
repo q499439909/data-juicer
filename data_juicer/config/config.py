@@ -1834,11 +1834,20 @@ def get_init_configs(cfg: Union[Namespace, Dict], load_configs_only: bool = True
 
     # Use a unique temporary file per call to avoid race conditions when
     # multiple requests are processed concurrently (e.g. in API service mode).
-    # The file is automatically deleted after the with-block exits.
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", prefix="job_dj_config_", delete=True) as temp_f:
-        json.dump(prepare_cfgs_for_export(cfg), temp_f)
-        temp_f.flush()
-        inited_dj_cfg = init_configs(["--config", temp_f.name], load_configs_only=load_configs_only)
+    # NOTE: mkstemp + os.fdopen instead of NamedTemporaryFile(delete=True):
+    # on Windows the latter holds an exclusive lock, so jsonargparse's second
+    # open() inside init_configs raises PermissionError [Errno 13].
+    fd, temp_path = tempfile.mkstemp(suffix=".json", prefix="job_dj_config_")
+    try:
+        with os.fdopen(fd, "w") as temp_f:
+            json.dump(prepare_cfgs_for_export(cfg), temp_f)
+            temp_f.flush()
+        inited_dj_cfg = init_configs(["--config", temp_path], load_configs_only=load_configs_only)
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
     return inited_dj_cfg
 
 

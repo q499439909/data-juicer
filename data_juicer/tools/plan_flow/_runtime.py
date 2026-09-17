@@ -55,7 +55,10 @@ def bind_api_operator(
         )
 
     resolved_model = str(explicit_model or "").strip() or None
-    if is_vlm and resolved_model is None:
+    if is_vlm:
+        # API VLM model selection is server-owned. Operator signatures expose a
+        # local-HF default which agents may copy into a Plan; never let that
+        # placeholder override the configured remote model.
         resolved_model = str(os.environ.get("DJ_VLM_MODEL") or "").strip() or None
         if resolved_model is None:
             template_hint = f" (copy {config_template} first if needed)" if config_template else ""
@@ -66,7 +69,7 @@ def bind_api_operator(
                     "operator": operator,
                     "missing": "vlm_model",
                     "message": (
-                        f"API VLM operator {operator} requires an explicit model or DJ_VLM_MODEL. Configure "
+                        f"API VLM operator {operator} requires DJ_VLM_MODEL. Configure "
                         f"DJ_VLM_MODEL in {config_file}{template_hint}, {restart_hint}."
                     ),
                 }

@@ -186,7 +186,7 @@ def filter_arguments(func, args_dict):
 
 
 class ChatAPIModel:
-    def __init__(self, model=None, endpoint=None, response_path=None, **kwargs):
+    def __init__(self, model=None, endpoint=None, response_path=None, raise_on_error=False, **kwargs):
         """
         Initializes an instance of the APIModel class.
 
@@ -202,6 +202,9 @@ class ChatAPIModel:
             extract the desired content from the API response. The default
             value is 'choices.0.message.content', which corresponds to the
             typical structure of an OpenAI API response.
+        :param raise_on_error: Re-raise transport and response parsing errors
+            so callers that require fail-closed behavior retain the original
+            HTTP status, request ID, and provider error body.
         :param kwargs: Additional keyword arguments for configuring the
             internal OpenAI client.
         """
@@ -209,6 +212,7 @@ class ChatAPIModel:
         self.endpoint = endpoint or "/chat/completions"
         self.response_path = response_path or "choices.0.message.content"
         self.last_response = None  # last chat completion JSON (for usage / debugging)
+        self.raise_on_error = raise_on_error
 
         client_args = filter_arguments(openai.OpenAI, kwargs)
         if "base_url" not in client_args and os.environ.get("OPENAI_BASE_URL"):
@@ -251,6 +255,8 @@ class ChatAPIModel:
         except Exception as e:
             logger.exception(e)
             self.last_response = None
+            if self.raise_on_error:
+                raise
             return ""
 
 

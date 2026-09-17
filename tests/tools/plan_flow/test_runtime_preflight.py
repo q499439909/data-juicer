@@ -49,7 +49,7 @@ def test_prepare_plan_reports_gpu_tagged_operator_cpu_fallback_without_blocking(
     ]
     assert {item["code"] for item in assessment["warnings"]} >= {
         "CPU_FALLBACK",
-        "MODEL_DOWNLOAD_MAY_BE_REQUIRED",
+        "MODEL_PREPARATION_REQUIRED",
     }
     assert assessment["model_inputs"][0]["value"] == "Falconsai/nsfw_image_detection"
 
@@ -76,7 +76,11 @@ def test_run_plan_rechecks_explicit_gpu_requirement(tmp_path):
         str(tmp_path),
         _plan(dataset, operator="text_length_filter", params={"min_len": 1}, profile="local-gpu"),
     )
+    with pytest.raises(PlanFlowError, match='runtime blockers'):
+        service.approve_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"], prepared["content_hash"])
+    service.runtime_preflight = RuntimePreflight(cuda_available=lambda: True, platform_name=lambda: "gpu-test-host")
     service.approve_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"], prepared["content_hash"])
+    service.runtime_preflight = _cpu_preflight()
 
     with pytest.raises(PlanFlowError) as blocked:
         service.run_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"])

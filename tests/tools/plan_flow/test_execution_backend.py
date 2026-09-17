@@ -200,7 +200,7 @@ def test_local_backend_keeps_pid_in_private_state(tmp_path):
     assert record["pid"] == 4242
     assert record["run_id"] == spec.run_id
     assert record["runtime_spec"]["run_id"] == spec.run_id
-    command = popen.call_args.args[0]
+    command = popen.call_args_list[0].args[0]
     assert "data_juicer.tools.plan_flow.execution.local_worker" in command
 
 
@@ -274,10 +274,11 @@ def test_local_backend_cancel_uses_only_its_private_process_identity(tmp_path):
     with patch("data_juicer.tools.plan_flow.execution.local_process.subprocess.Popen", return_value=launched):
         handle = backend.start(spec)
 
+    (Path(spec.run_dir) / "run.json").write_text(json.dumps({"status":"running"}))
     child = MagicMock()
     process = MagicMock()
     process.children.return_value = [child]
-    with patch.object(backend, "_same_process", return_value=True), patch("psutil.Process", return_value=process):
+    with patch.object(backend, "_same_process", return_value=True), patch("psutil.Process", return_value=process), patch("psutil.wait_procs", return_value=([], [])):
         backend.cancel(handle)
 
     child.terminate.assert_called_once_with()

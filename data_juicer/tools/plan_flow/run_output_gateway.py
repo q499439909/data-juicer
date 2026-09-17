@@ -69,16 +69,19 @@ class RunOutputGateway:
 
         view, degraded = self._view(context["output_root"], inventory)
         task = read_yaml(context["task_root"] / "task.yaml")
-        title = str(view.get("title") or task.get("title") or "管线结果")[:300]
+        title = str(view.get("title") or task.get("title") or "绠＄嚎缁撴灉")[:300]
         summary = view.get("summary") if isinstance(view.get("summary"), dict) else {}
         return {
             "eligible": True,
+            "ownerId": task.get("owner"),
+            "deliveryStatus": state.get("delivery_status", "unverified"),
+            "acceptanceStatus": state.get("acceptance_status", "unverified"),
             "resultRef": str(result_ref),
             "taskId": str(task_id),
             "planVersion": str(plan_version),
             "internalRunId": str(result_ref),
             "title": title,
-            "status": "available" if state.get("status") == "succeeded" and not degraded else "partial",
+            "status": "available" if state.get("status") == "succeeded" and not degraded and state.get("delivery_status", "passed") == "passed" and state.get("acceptance_status", "passed") == "passed" else "partial",
             "createdAt": state.get("created_at"),
             "completedAt": state.get("updated_at") or manifest.get("finished_at"),
             "manifestHash": sha256_file(manifest_path),

@@ -55,13 +55,16 @@ def runtime_python(store, requirements, run_command=None):
         if installed is None:
             missing.append(f"{name}=={version}")
     base_packages = [path for path in sys.path if path.rstrip("/\\").endswith("site-packages")]
+    from .deployment import build_identity
+    base_identity = build_identity()
     runtime_id = digest(
         {
             "python": sys.executable,
             "version": sys.version,
             "dependencies": pinned,
             "base_packages": base_packages,
-            "layout": 2,
+            "layout": 3,
+            "base_identity": base_identity,
         }
     )[:24]
     target = store.path(store.home / "operator_runtimes" / runtime_id)
@@ -88,6 +91,7 @@ def runtime_python(store, requirements, run_command=None):
             else f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages"
         )
         write_text_atomic(site / "dsh_dj_base.pth", "\n".join(base_packages) + "\n")
+        install_report = target / "install-report.json"
         if missing:
             run_command(
                 [
@@ -97,6 +101,7 @@ def runtime_python(store, requirements, run_command=None):
                     "--disable-pip-version-check",
                     "install",
                     "--no-input",
+                    "--report", str(install_report).removeprefix("\\\\?\\"),
                     "--no-deps",
                     "--require-virtualenv",
                     *missing,
@@ -105,5 +110,16 @@ def runtime_python(store, requirements, run_command=None):
         # All transitive requirements must be explicitly present in the lock or DJ base.
         if missing:
             run_command([executable, "-m", "pip", "check"])
-        write_json_atomic(marker, {"dependencies": pinned, "python": sys.version})
+        artifacts = []
+        if missing:
+            for item in read_json(install_report).get('install', []):
+                hashes = item.get('download_info', {}).get('archive_info', {}).get('hashes', {})
+                artifacts.append({'name':item['metadata']['name'], 'version':item['metadata']['version'], 'sha256':hashes.get('sha256')})
+            # Keep content identity, not index URLs or installer credentials.
+            write_json_atomic(install_report, {'artifacts':artifacts})
+            import re
+            covered = {canonicalize_name(item['name']) for item in artifacts if isinstance(item['sha256'], str) and re.fullmatch(r'[0-9a-fA-F]{64}', item['sha256'])}
+            if not {item.split('==')[0] for item in missing}.issubset(covered):
+                raise PlanFlowError('DEPENDENCY_ARTIFACT_UNVERIFIED', 'Pip did not record each installed artifact SHA-256')
+        write_json_atomic(marker, {"dependencies": pinned, "python": sys.version, 'base_identity':base_identity, 'artifacts':artifacts})
     return executable

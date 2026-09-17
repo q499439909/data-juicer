@@ -153,6 +153,7 @@ def test_same_model_used_by_multiple_steps_has_one_binding(tmp_path):
 def test_prepare_plan_freezes_builtin_model_without_downloading(tmp_path):
     dataset = tmp_path / "input.jsonl"
     dataset.write_text('{"images":["image.jpg"]}\n', encoding="utf-8")
+    (tmp_path / "image.jpg").write_bytes(b"fixture media")
     plan = {
         "user_intent": "Filter unsafe images",
         "modality": "image",

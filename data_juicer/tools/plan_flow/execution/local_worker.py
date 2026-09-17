@@ -1,6 +1,7 @@
 """Internal worker process launched by LocalProcessBackend."""
 
 from __future__ import annotations
+from filelock import FileLock
 
 import argparse
 import os
@@ -11,7 +12,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from ..common import FileLock, PlanFlowError, now_iso, read_json, read_yaml, sha256_file, write_json_atomic, write_text_atomic
+from ..common import PlanFlowError, now_iso, read_json, read_yaml, sha256_file, write_json_atomic, write_text_atomic
 from ..result_manifest import write_result_manifest
 from ..store import PlanStore
 
@@ -45,6 +46,14 @@ def _postprocess_arguments(arguments: Any) -> list[str]:
     return result
 
 
+def _write_worker_state(path, state):
+    with FileLock(path.with_suffix('.lock')):
+        current = read_json(path)
+        if current.get('status') in {'cancelling', 'cancelled', 'failed', 'succeeded'}:
+            return
+        write_json_atomic(path, state)
+
+
 def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str) -> int:
     store = PlanStore(workspace)
     plan_path = store.plan_path(task_id, plan_version)
@@ -53,6 +62,11 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
         if (run_path / ".started").is_file():
             break
         time.sleep(0.05)
+    else:
+        state = read_json(run_path / "run.json")
+        state.update(status="failed", error_code="START_INTERRUPTED", error="Host did not commit the run start")
+        _write_worker_state(run_path / "run.json", state)
+        return 1
     state = read_json(run_path / "run.json")
     exit_code = 0
     try:
@@ -72,6 +86,11 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
             if binding.get("backend") == "python-distribution"
         )
         verify_runtime_lock(plan.get("runtime_lock"), required_packages=required_packages)
+        from ..runtime_environment_lock import inspect_plan_runtime
+        environment=inspect_plan_runtime(plan)
+        if not environment['ok']:
+            issue=environment['blocking_issues'][0]
+            raise PlanFlowError(issue['code'],issue['message'],details=environment)
         # No production execution path may mutate the shared DJ environment.
         os.environ["DATA_JUICER_DISABLE_AUTO_INSTALL"] = "1"
         recipe = read_yaml(run_path / "materialized-recipe.yaml")
@@ -97,7 +116,7 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
             from ..model_lock_resolver import ModelLockResolver
 
             state.update({"status": "preparing_models", "updated_at": now_iso()})
-            write_json_atomic(run_path / "run.json", state)
+            _write_worker_state(run_path / "run.json", state)
             resolver = ModelLockResolver()
             runtime_bindings = resolver.attach_local_sources(bindings, selected)
             paths = resolver.prepare(runtime_bindings)
@@ -111,12 +130,16 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
         state.update({"status": "running", "updated_at": now_iso()})
-        write_json_atomic(run_path / "run.json", state)
+        _write_worker_state(run_path / "run.json", state)
         from data_juicer.config import init_configs
         from data_juicer.core.executor import ExecutorFactory
 
         cfg = init_configs(["--config", str(run_path / "materialized-recipe.yaml")], load_configs_only=False)
-        ExecutorFactory.create_executor(cfg.executor_type)(cfg).run()
+        if any(step.get('kind')=='image_audit' for step in plan.get('postprocess',[])):
+            from ..image_audit import score_audit_input
+            score_audit_input(cfg, lambda steps: (state.update(steps=steps), _write_worker_state(run_path/'run.json',state)), plan['recipe']['dataset_path'])
+        else:
+            ExecutorFactory.create_executor(cfg.executor_type)(cfg).run()
         variables = {
             "RUN_OUTPUT": state["output_dir"],
             "RUN_DIR": str(run_path),
@@ -124,6 +147,15 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
         }
         post_results = []
         for index, step in enumerate(plan.get("postprocess", []) or []):
+            state['active_postprocess_index']=index
+            state['postprocess_results']=post_results
+            _write_worker_state(run_path/'run.json',state)
+            if step.get('kind')=='image_audit':
+                from ..image_audit import run_image_audit
+                post_results.append({'step':index+1, **run_image_audit(step,recipe['export_path'],state['output_dir'],plan['recipe']['dataset_path'],coverage=plan.get('coverage',[]))})
+                state['postprocess_results']=post_results
+                _write_worker_state(run_path/'run.json',state)
+                continue
             script = (plan_path / step["script"]).resolve()
             if plan_path.resolve() not in script.parents:
                 raise PlanFlowError("PATH_NOT_ALLOWED", f"Postprocess artifact escaped plan bundle: {script}")
@@ -137,6 +169,11 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
             if completed.returncode:
                 raise RuntimeError(f"Postprocess step {index + 1} failed; see {log_path}")
             post_results.append({"step": index + 1, "script": step["script"], "log": str(log_path)})
+            _write_worker_state(run_path/'run.json',state)
+        from ..delivery import verify_delivery
+        verification = verify_delivery(plan, state['output_dir'])
+        write_json_atomic(run_path / 'acceptance.json', verification)
+        state.update({k: verification[k] for k in ('delivery_status', 'acceptance_status', 'task_status')})
         report = "\n".join(
             [
                 "# Data-Juicer run report",
@@ -147,6 +184,9 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
                 f"- Output: `{state['output_dir']}`",
                 f"- Recipe output: `{recipe['export_path']}`",
                 f"- DJ steps: {len(recipe.get('process', []))}",
+                f"- Delivery: {verification['delivery_status']}",
+                f"- Acceptance: {verification['acceptance_status']}",
+                f"- Evidence: {run_path / 'acceptance.json'}",
                 f"- Postprocess steps: {len(post_results)}",
                 "",
             ]
@@ -163,6 +203,7 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
         state.update(
             {
                 "status": "succeeded",
+                "execution_status": "succeeded",
                 "updated_at": finished_at,
                 "recipe_output": str(recipe["export_path"]),
                 "postprocess_results": post_results,
@@ -173,10 +214,24 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
         )
     except Exception as exc:
         traceback.print_exc()
+        state.update(execution_status='failed', delivery_status='failed', acceptance_status='unverified', task_status='failed')
+        write_text_atomic(run_path / 'report.md', f'# Failed run\n\n{type(exc).__name__}: {exc}\n')
+        state['report_path'] = str(run_path / 'report.md')
         exit_code = 20
         error_code = exc.code if isinstance(exc, PlanFlowError) else "EXECUTION_FAILED"
         state.update({"status": "failed", "updated_at": now_iso(), "error_code": error_code, "error": str(exc)})
-    write_json_atomic(run_path / "run.json", state)
+        from ..recovery import recovery
+        state['recovery_actions']=recovery(error_code)[1]
+        state['error_details']=getattr(exc,'details',None)
+        state['stdout_log']=str(run_path/'logs'/'stdout.log')
+        state['stderr_log']=str(run_path/'logs'/'stderr.log')
+        diagnostic_path = run_path / 'failure-manifest.json'
+        write_json_atomic(diagnostic_path, {'task_id': task_id, 'plan_version': plan_version, 'run_id': run_id,
+            'execution_status': 'failed', 'error_code': error_code, 'error': str(exc),
+            'report_path': state['report_path'], 'stdout_log': state.get('stdout_log'), 'stderr_log': state.get('stderr_log'),
+            'error_details':state['error_details'],'recovery_actions':state['recovery_actions']})
+        state['failure_manifest_path'] = str(diagnostic_path)
+    _write_worker_state(run_path / "run.json", state)
     return exit_code
 
 

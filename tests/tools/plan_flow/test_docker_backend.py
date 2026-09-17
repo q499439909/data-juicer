@@ -197,19 +197,15 @@ def test_docker_backend_collects_verified_output_and_survives_adapter_restart(tm
     assert (Path(record["worker_run_root"]) / "bundle").is_dir()
 
 
-def test_docker_backend_rejects_dataset_outside_workspace_before_create(tmp_path):
-    workspace, worker = tmp_path / "workspace", tmp_path / "worker"
+def test_outside_workspace_input_is_rejected_before_approval_or_backend_create(tmp_path):
+    workspace = tmp_path / "workspace"
     workspace.mkdir()
     outside = tmp_path / "outside.jsonl"
     outside.write_text("{}\n", encoding="utf-8")
-    task_id, version = _approved_plan(workspace, outside)
-    fake = FakeDocker()
-
     with pytest.raises(PlanFlowError) as error:
-        PlanRunner(workspace, backend=_backend(workspace, worker, fake)).start(task_id, version)
-
-    assert error.value.code == "PATH_NOT_ALLOWED"
-    assert not any(call[0][1] == "create" for call in fake.calls)
+        _approved_plan(workspace, outside)
+    assert error.value.code == "PLAN_INVALID"
+    assert not (workspace / '.dj' / 'execution').exists()
 
 
 @pytest.mark.parametrize(

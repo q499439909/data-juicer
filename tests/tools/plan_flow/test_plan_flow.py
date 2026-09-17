@@ -47,6 +47,28 @@ def test_relative_input_path_is_resolved_from_workspace(tmp_path):
     assert result["dataset_path"] == str(input_dir.resolve())
 
 
+def test_plan_flow_keeps_meta_and_stats_in_recipe_output_by_default(tmp_path):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
+
+    normalized, validation, _ = normalize_and_validate(str(tmp_path), _plan(dataset))
+
+    assert validation["ok"] is True
+    assert normalized["recipe"]["keep_stats_in_res_ds"] is True
+
+
+def test_plan_flow_preserves_explicit_compact_output_choice(tmp_path):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
+    plan = _plan(dataset)
+    plan["recipe"]["keep_stats_in_res_ds"] = False
+
+    normalized, validation, _ = normalize_and_validate(str(tmp_path), plan)
+
+    assert validation["ok"] is True
+    assert normalized["recipe"]["keep_stats_in_res_ds"] is False
+
+
 def test_operator_catalog_projects_the_live_registry_without_internal_paths():
     result = operator_catalog()
 
@@ -231,6 +253,89 @@ def test_runtime_vlm_model_is_materialized_for_api_vlm_operator(tmp_path, monkey
     assert params["api_or_hf_model"] == "qwen3.7-plus"
 
 
+def test_runtime_vlm_model_overrides_operator_default_copied_into_plan(tmp_path, monkeypatch):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"<__dj__image>","images":["image.jpg"]}\n', encoding="utf-8")
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-secret")
+    monkeypatch.setenv("DJ_VLM_MODEL", "qwen3.7-plus")
+    plan = {
+        "user_intent": "Tag images",
+        "modality": "image",
+        "recipe": {
+            "dataset_path": str(dataset),
+            "export_path": "result.jsonl",
+            "process": [
+                {
+                    "image_tagging_vlm_mapper": {
+                        "is_api_model": True,
+                        "api_or_hf_model": "Qwen/Qwen2.5-VL-7B-Instruct",
+                    }
+                }
+            ],
+        },
+    }
+
+    normalized, validation, _ = normalize_and_validate(str(tmp_path), plan)
+
+    assert validation["ok"] is True
+    params = normalized["recipe"]["process"][0]["image_tagging_vlm_mapper"]
+    assert params["api_or_hf_model"] == "qwen3.7-plus"
+
+
+def test_api_operator_uses_server_transport_and_fails_closed(tmp_path, monkeypatch):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"","images":["image.jpg"]}\n', encoding="utf-8")
+    monkeypatch.setenv("OPENAI_API_KEY", "configured-secret")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://gateway.example/v1")
+    monkeypatch.setenv("DJ_VLM_MODEL", "qwen3.7-plus")
+    plan = {
+        "user_intent": "Tag images through the configured API gateway",
+        "modality": "image",
+        "recipe": {
+            "dataset_path": str(dataset),
+            "export_path": "result.jsonl",
+            "skip_op_error": True,
+            "process": [
+                {
+                    "image_tagging_vlm_mapper": {
+                        "is_api_model": True,
+                        "model_params": {
+                            "base_url": "https://dashscope.example/v1",
+                            "api_key": "plan-secret",
+                        },
+                    }
+                }
+            ],
+        },
+    }
+
+    normalized, validation, _ = normalize_and_validate(str(tmp_path), plan)
+
+    assert normalized["recipe"]["skip_op_error"] is False
+    codes = {item["code"] for item in validation["errors"]}
+    assert "API_TRANSPORT_OVERRIDE_FORBIDDEN" in codes
+    assert "API_FAIL_OPEN_FORBIDDEN" in codes
+
+
+def test_invalid_image_size_unit_is_rejected_during_plan_validation(tmp_path):
+    dataset = tmp_path / "input.jsonl"
+    dataset.write_text('{"text":"","images":["image.jpg"]}\n', encoding="utf-8")
+    plan = {
+        "user_intent": "Keep non-empty images",
+        "modality": "image",
+        "recipe": {
+            "dataset_path": str(dataset),
+            "export_path": "result.jsonl",
+            "process": [{"image_size_filter": {"min_size": "1B", "max_size": "100MB"}}],
+        },
+    }
+
+    _, validation, _ = normalize_and_validate(str(tmp_path), plan)
+
+    error = next(item for item in validation["errors"] if item["code"] == "INVALID_SIZE_VALUE")
+    assert error["path"] == "recipe.process[0].image_size_filter.min_size"
+
+
 def test_prepare_reports_operator_specific_missing_api_credentials(tmp_path, monkeypatch):
     dataset = tmp_path / "input.jsonl"
     dataset.write_text('{"text":"<__dj__image>","images":["image.jpg"]}\n', encoding="utf-8")
@@ -344,6 +449,7 @@ def test_service_separates_discovery_metadata_from_executable_schema():
         "tags",
         "description",
         "match_score",
+        "ranking",
         "matched_requirements",
         "provider",
         "status",
@@ -473,7 +579,8 @@ def test_mcp_exposes_small_plan_first_surface():
         "inspect_input",
         "search_capabilities",
         "get_capability_schemas",
-        "resolve_capabilities",
+        "get_plan_contract",
+        "inspect_runtime",
         "prepare_plan",
         "get_plan",
         "approve_plan",
@@ -485,7 +592,7 @@ def test_mcp_exposes_small_plan_first_surface():
         "get_custom_operator_job",
         "validate_custom_operator",
     }
-    assert len(tools) == 14
+    assert len(tools) == 15
 
 
 def test_production_service_refuses_to_fall_back_to_shared_local_process(tmp_path):
@@ -493,11 +600,10 @@ def test_production_service_refuses_to_fall_back_to_shared_local_process(tmp_pat
     dataset.write_text('{"text":"hello"}\n', encoding="utf-8")
     service = PlanFlowService()
     prepared = service.prepare_plan(str(tmp_path), _plan(dataset))
-    service.approve_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"], prepared["content_hash"])
 
     with pytest.raises(PlanFlowError) as missing:
-        service.run_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"])
-    assert missing.value.code == "BROKER_REQUIRED"
+        service.approve_plan(str(tmp_path), prepared["task_id"], prepared["plan_version"], prepared["content_hash"])
+    assert missing.value.code == "RUNTIME_PREFLIGHT_FAILED"
 
 
 def test_native_execution_mode_must_be_selected_explicitly():

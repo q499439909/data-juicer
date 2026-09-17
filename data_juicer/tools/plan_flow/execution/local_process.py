@@ -1,6 +1,7 @@
 """Local subprocess adapter for the execution backend seam."""
 
 from __future__ import annotations
+from filelock import FileLock
 
 import os
 import re
@@ -12,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from ..common import FileLock, PlanFlowError, is_within, read_json, require_workspace, write_json_atomic
+from ..common import PlanFlowError, is_within, read_json, require_workspace, write_json_atomic
 from .spec import RunHandle, RunResult, RunStatus, RuntimeSpec
 
 _BACKEND_REF = re.compile(r"[0-9a-f]{32}\Z")
@@ -69,6 +70,9 @@ class LocalProcessBackend:
             spec.run_id,
         ]
         environment = os.environ.copy()
+        for key in list(environment):
+            if key.startswith(('DSH_AUTH', 'LANGFUSE_')) or key in {'DSH_DJ_INTERNAL_TOKEN', 'DSH_REGISTRATION_INVITE_HASH'}:
+                environment.pop(key)
         source_root = str(Path(__file__).resolve().parents[4])
         environment["PYTHONPATH"] = source_root + os.pathsep + environment.get("PYTHONPATH", "")
         flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if os.name == "nt" else 0
@@ -107,6 +111,17 @@ class LocalProcessBackend:
         except Exception:
             process.terminate()
             raise
+        # A detached watchdog enforces deadlines even when the host/UI stops polling.
+        try:
+            subprocess.Popen(
+                [sys.executable, '-X', 'utf8', '-m', 'data_juicer.tools.plan_flow.execution.supervisor', str(record_path)],
+                cwd=spec.workspace_root, env=environment, stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=flags,
+            )
+        except Exception:
+            from .supervisor import terminate_tree
+            terminate_tree(record)
+            raise
         return RunHandle(
             backend=self.name,
             run_id=spec.run_id,
@@ -125,27 +140,17 @@ class LocalProcessBackend:
         if record.get("status") == "cancelled":
             return RunStatus("cancelled", _now())
         if self._same_process(record):
+            if handle.deadline and _now() >= handle.deadline:
+                from .supervisor import stop_record
+                stop_record(self._record_path(handle.backend_ref), timeout=True)
+                return RunStatus("failed", _now(), "Run deadline exceeded")
             return RunStatus("running", _now())
         return RunStatus("lost", _now(), "Local worker exited without a terminal run state")
 
     def cancel(self, handle: RunHandle) -> None:
-        record = self._load_record(handle)
-        if not self._same_process(record):
-            raise PlanFlowError("RUNNER_LOST", f"Local worker is not running: {handle.run_id}")
-        try:
-            import psutil
-
-            process = psutil.Process(int(record["pid"]))
-            for child in process.children(recursive=True):
-                child.terminate()
-            process.terminate()
-        except Exception as exc:
-            raise PlanFlowError("CANCEL_FAILED", f"Could not stop run {handle.run_id}: {exc}") from exc
-        record_path = self._record_path(handle.backend_ref)
-        with FileLock(record_path.with_suffix(".lock")):
-            current = read_json(record_path)
-            current.update({"status": "cancelled", "finished_at": _now().isoformat()})
-            write_json_atomic(record_path, current)
+        self._load_record(handle)
+        from .supervisor import stop_record
+        stop_record(self._record_path(handle.backend_ref))
 
     def collect(self, handle: RunHandle) -> RunResult:
         record = self._load_record(handle, missing_ok=True)

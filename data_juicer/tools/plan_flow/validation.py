@@ -134,6 +134,94 @@ def _validate_models(plan: dict[str, Any], errors: list[dict[str, str]]) -> None
             )
 
 
+def _validate_api_operator_policy(params: dict[str, Any], path: str, errors: list[dict[str, str]]) -> None:
+    """Keep API transport configuration server-owned and provider-coherent."""
+    model_params = params.get("model_params")
+    if isinstance(model_params, dict):
+        for key in ("base_url", "api_key"):
+            if model_params.get(key) not in (None, "", False):
+                errors.append(
+                    {
+                        "code": "API_TRANSPORT_OVERRIDE_FORBIDDEN",
+                        "path": f"{path}.model_params.{key}",
+                        "message": (
+                            f"API transport field {key} is server-owned; remove it from the Plan and use the "
+                            "configured plan-flow API profile"
+                        ),
+                    }
+                )
+    endpoint = params.get("api_endpoint")
+    if isinstance(endpoint, str) and "://" in endpoint:
+        errors.append(
+            {
+                "code": "API_TRANSPORT_OVERRIDE_FORBIDDEN",
+                "path": f"{path}.api_endpoint",
+                "message": "api_endpoint may be a relative API route, but an absolute API address is server-owned",
+            }
+        )
+
+
+def _validate_size_filter_values(name: str, params: dict[str, Any], path: str, errors: list[dict[str, str]]) -> None:
+    """Exercise DJ's real size parser while the Plan is still reviewable."""
+    if not name.endswith("_size_filter"):
+        return
+    from data_juicer.utils.mm_utils import size_to_bytes
+
+    for key in ("min_size", "max_size"):
+        if key not in params:
+            continue
+        try:
+            size_to_bytes(params[key])
+        except (TypeError, ValueError) as exc:
+            errors.append(
+                {
+                    "code": "INVALID_SIZE_VALUE",
+                    "path": f"{path}.{key}",
+                    "message": str(exc),
+                }
+            )
+
+
+def _validate_model_response_contract(
+    name: str, params: dict[str, Any], path: str, errors: list[dict[str, str]]
+) -> None:
+    """Reject custom prompts that contradict a curated model response contract."""
+    from .score_contracts import OUTPUT_CONTRACTS
+
+    contract = OUTPUT_CONTRACTS.get(name)
+    if not contract:
+        return
+    prompt_parameter = contract.get("prompt_parameter")
+    if not prompt_parameter:
+        return
+    prompt = params.get(prompt_parameter)
+    # Missing/empty custom prompts use the operator's contract-compatible default.
+    if prompt in (None, ""):
+        return
+    if not isinstance(prompt, str):
+        return
+    field = str(contract.get("canonical_response_field") or "")
+    schema = contract.get("model_response_schema", {})
+    field_schema = schema.get("properties", {}).get(field, {})
+    if field_schema.get("type") != "array":
+        return
+    # Require an explicit JSON-like array shape, not a casual mention of the
+    # word "tags". This catches prompts that ask for arbitrary top-level keys.
+    pattern = rf'(?is)(?:"{re.escape(field)}"|\'{re.escape(field)}\'|\b{re.escape(field)}\b)\s*:\s*\['
+    if not re.search(pattern, prompt):
+        example = contract.get("canonical_example", {field: ["tag1"]})
+        errors.append(
+            {
+                "code": "MODEL_RESPONSE_CONTRACT_MISMATCH",
+                "path": f"{path}.{prompt_parameter}",
+                "message": (
+                    f"{name} parses a top-level {field!r} array. The custom {prompt_parameter} must explicitly "
+                    f"require that JSON shape, for example: {example!r}"
+                ),
+            }
+        )
+
+
 def normalize_and_validate(
     workspace_root: str, raw_plan: dict[str, Any], *, external_operator_names: frozenset[str] = frozenset(), operator_schemas=None
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
@@ -161,6 +249,10 @@ def normalize_and_validate(
         errors.append({"code": "RECIPE_REQUIRED", "path": "recipe", "message": "plan.recipe must be an object"})
         recipe = {}
         plan["recipe"] = recipe
+    # Plan-flow favors reversible retention: downstream steps should see one
+    # deterministic recipe output instead of probing and joining a sidecar.
+    # This changes only the controlled Plan default; explicit false is kept.
+    recipe.setdefault("keep_stats_in_res_ds", True)
 
     sources = [name for name in ("dataset_path", "dataset", "generated_dataset_config") if recipe.get(name)]
     if len(sources) != 1:
@@ -238,6 +330,7 @@ def normalize_and_validate(
                 )
 
     process = recipe.get("process")
+    api_operator_selected = False
     if not isinstance(process, list) or not process:
         errors.append(
             {"code": "PROCESS_REQUIRED", "path": "recipe.process", "message": "recipe.process must be a non-empty list"}
@@ -289,7 +382,9 @@ def normalize_and_validate(
             api_selected = "api" in tags and (not has_api_mode_switch or params.get("is_api_model") is True)
             is_api_vlm = api_selected and "multimodal" in tags and "api_or_hf_model" in schema["parameters"]
             if api_selected:
+                api_operator_selected = True
                 operator_path = f"{location}.{name}"
+                _validate_api_operator_policy(params, operator_path, errors)
                 resolved_model, binding_errors, binding_warnings = bind_api_operator(
                     operator=name,
                     path=operator_path,
@@ -300,6 +395,8 @@ def normalize_and_validate(
                 warnings.extend(binding_warnings)
                 if is_api_vlm and resolved_model:
                     params["api_or_hf_model"] = resolved_model
+            _validate_size_filter_values(name, params, f"{location}.{name}", errors)
+            _validate_model_response_contract(name, params, f"{location}.{name}", errors)
             allowed = set(schema["parameters"]) | _COMMON_OPERATOR_PARAMS
             for unknown in sorted(set(params) - allowed):
                 errors.append(
@@ -318,6 +415,16 @@ def normalize_and_validate(
                             "message": f"Required parameter is missing: {param_name}",
                         }
                     )
+    if api_operator_selected:
+        if recipe.get("skip_op_error") is True:
+            errors.append(
+                {
+                    "code": "API_FAIL_OPEN_FORBIDDEN",
+                    "path": "recipe.skip_op_error",
+                    "message": "API operators must fail the Run when a request or response is invalid",
+                }
+            )
+        recipe["skip_op_error"] = False
     executor = recipe.get("executor_type", "default")
     if executor not in {"default", "ray", "ray_partitioned"}:
         errors.append(
@@ -361,6 +468,25 @@ def normalize_and_validate(
             artifact_paths.append(str(raw))
     for index, step in enumerate(plan.get("postprocess", []) or []):
         location = f"postprocess[{index}]"
+        if isinstance(step,dict) and step.get('kind')=='image_audit':
+            from .plan_contract import ImageAudit
+            try:
+                audit=ImageAudit.model_validate(step)
+                if audit.image_key!=recipe.get('image_key','images'):
+                    raise ValueError('Audit image_key must match recipe.image_key')
+                prefixes=[s.get('output_prefix','audit') for s in plan.get('postprocess',[]) if isinstance(s,dict) and s.get('kind')=='image_audit']
+                if len(set(prefixes))!=len(prefixes):
+                    raise ValueError('Each audit component needs a distinct output_prefix')
+                if len({r.id for r in audit.rules})!=len(audit.rules) or any((r.min is None and r.max is None) or (r.min is not None and r.max is not None and r.min>r.max) for r in audit.rules):
+                    raise ValueError('Audit rules need unique IDs and ordered finite bounds')
+                if recipe.get('executor_type','default')!='default' or not str(recipe.get('dataset_path','')).endswith('.jsonl'):
+                    raise ValueError('image_audit requires default native executor and a local JSONL manifest')
+                if any((operator_schemas or {}).get(next(iter(op)), operator_schema(next(iter(op))) or {}).get('type')!='filter' for op in recipe.get('process',[]) if isinstance(op,dict) and len(op)==1):
+                    raise ValueError('image_audit recipe must contain only Filter operators; native runner scores without dropping samples')
+                recipe['keep_stats_in_res_ds']=True
+            except (ValueError,TypeError) as exc:
+                errors.append({'code':'INVALID_IMAGE_AUDIT','path':location,'message':str(exc)})
+            continue
         if not isinstance(step, dict) or step.get("kind") != "python":
             errors.append(
                 {
@@ -394,4 +520,7 @@ def normalize_and_validate(
             errors.append({"code": "POSTPROCESS_SYNTAX", "path": f"{location}.script", "message": str(exc)})
 
     _validate_secrets(plan, "", errors)
+    from .delivery import validate_contract
+    from .task_control import controlled
+    validate_contract(plan, errors, required=controlled())
     return plan, {"ok": not errors, "errors": errors, "warnings": warnings}, artifact_paths

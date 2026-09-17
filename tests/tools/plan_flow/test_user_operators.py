@@ -250,20 +250,28 @@ def test_real_executor_publish_cleanup_and_catalog(account, monkeypatch):
             }
         ],
     }
+    from data_juicer.tools.plan_flow.task_control import register_workspace, trusted_decision
+    monkeypatch.setenv("DSH_DJ_ALLOWED_WORKSPACES", workspace)
+    register_workspace(workspace, current_user.get())
+    plan["expected_outputs"] = [{"id":"corpus","path":"result.jsonl","format":"jsonl","producer":{"kind":"recipe"}}]
     service = PlanFlowService.native()
     prepared = service.prepare_plan(workspace, plan)
     assert prepared["validation"]["ok"], prepared["validation"]
     args = (workspace, prepared["task_id"], prepared["plan_version"])
-    service.approve_plan(*args, prepared["content_hash"])
+    decision = trusted_decision.set("ui:test")
+    try:
+        service.approve_plan(*args, prepared["content_hash"])
+    finally:
+        trusted_decision.reset(decision)
     token = current_user.set("usr_B")
     try:
-        with pytest.raises(PlanFlowError, match="another account"):
-            service.run_plan(*args)
-        with pytest.raises(PlanFlowError, match="another account"):
+        with pytest.raises(PlanFlowError, match="account"):
+            service.run_plan(*args, request_id="integration")
+        with pytest.raises(PlanFlowError, match="account"):
             service.get_plan(*args)
     finally:
         current_user.reset(token)
-    started = service.run_plan(*args)["run"]
+    started = service.run_plan(*args, request_id="integration")["run"]
     deadline = time.monotonic() + 90
     while time.monotonic() < deadline:
         state = service.get_run(workspace, prepared["task_id"], started["run_id"])["run"]
@@ -418,6 +426,7 @@ def test_http_gateway_injects_account_outside_tool_arguments(account, monkeypatc
                 "x-dsh-user-id": "usr_A",
             }
             listing = client.get("/internal/operator-tools", headers=headers)
+            headers.update({"x-dsh-dj-protocol":"1", "x-dsh-dj-instance":listing.json()["instance_id"]})
             assert listing.status_code == 200
             tool_names = {tool["name"] for tool in listing.json()["tools"]}
             assert "develop_custom_operator" in tool_names

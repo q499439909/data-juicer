@@ -202,8 +202,11 @@ def parse_cli_datapath(dataset_path) -> Tuple[List[str], List[float]]:
         return [], []
 
     # Use shlex to properly handle quoted strings
+    # On Windows, normalize backslashes to forward slashes first — shlex in
+    # POSIX mode (default) treats '\' as an escape char and strips it,
+    # corrupting paths like D:\data\file.jsonl -> D:datafile.jsonl.
     try:
-        tokens = shlex.split(dataset_path)
+        tokens = shlex.split(dataset_path.replace("\\", "/") if os.name == "nt" else dataset_path)
     except ValueError as e:
         raise ValueError(f"Invalid dataset path format: {e}")
 

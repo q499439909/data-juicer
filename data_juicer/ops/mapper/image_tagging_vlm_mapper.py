@@ -113,6 +113,7 @@ Verify text relevance before combining with visual elements. If text is missing 
                 model=api_or_hf_model,
                 endpoint=api_endpoint,
                 response_path=response_path,
+                raise_on_error=True,
                 **model_params,
             )
         else:
@@ -204,22 +205,30 @@ Verify text relevance before combining with visual elements. If text is missing 
             )
 
             if self.is_api_model:
+                last_error = None
                 for _ in range(self.try_num):
                     try:
                         client = get_model(self.model_key, rank=rank)
                         output = client(messages, **self.sampling_params)
+                        if not isinstance(output, str) or not output.strip():
+                            raise RuntimeError("API model returned an empty response")
+                        tags = self.parse_output(output)
+                        if not tags:
+                            raise RuntimeError("API model returned no valid tags")
                         break
                     except Exception as e:
+                        last_error = e
                         logger.warning(f"Exception: {e}")
+                else:
+                    raise RuntimeError(f"API model failed after {self.try_num} attempts: {last_error}") from last_error
             else:
                 response = model.chat(messages, self.sampling_params)
                 output = response[0].outputs[0].text
-
-            try:
-                tags = self.parse_output(output)
-            except Exception as e:
-                logger.warning(f"Error parsing output: {e}")
-                tags = []
+                try:
+                    tags = self.parse_output(output)
+                except Exception as e:
+                    logger.warning(f"Error parsing output: {e}")
+                    tags = []
             tags_list.append(tags)
 
         tags_list = np.array(tags_list, dtype=object)

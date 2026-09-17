@@ -677,6 +677,19 @@ class ModelUtilsTest(DataJuicerTestCaseBase):
         )
         self.assertEqual(responses("hello"), "")
 
+    def test_chat_api_model_can_preserve_transport_errors(self):
+        base_url = self._start_local_api_server()
+        chat = prepare_api_model(
+            "local-chat",
+            endpoint="/chat/broken-json",
+            raise_on_error=True,
+            **self._local_client_params(base_url),
+        )
+
+        with self.assertRaises(Exception):
+            chat([{"role": "user", "content": "hello"}])
+        self.assertIsNone(chat.last_response)
+
     def test_prepare_model_get_model_caching_with_mock_server(self):
         """Model caching test uses Mock Server because it verifies identity
         (same object returned), not API correctness."""

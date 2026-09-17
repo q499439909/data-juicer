@@ -1,6 +1,7 @@
 # flake8: noqa: E501
 import os
 import unittest
+from unittest.mock import patch
 
 from data_juicer.core.data import NestedDataset as Dataset
 from data_juicer.utils.constant import DEFAULT_VL_API_MODEL, Fields, MetaKeys
@@ -81,6 +82,28 @@ class ImageTaggingVLMMapperTest(DataJuicerTestCaseBase):
 
         self.assertEqual(res_list[0][Fields.meta][MetaKeys.image_tags], [[]])
         self.assertTrue(len(res_list[1][Fields.meta][MetaKeys.image_tags]) > 0)
+
+    def test_api_model_raises_after_empty_responses(self):
+        class EmptyAPIClient:
+            def __call__(self, messages, **kwargs):
+                return ""
+
+        with patch(
+            "data_juicer.ops.mapper.image_tagging_vlm_mapper.prepare_model",
+            return_value="api-model-key",
+        ), patch(
+            "data_juicer.ops.mapper.image_tagging_vlm_mapper.get_model",
+            return_value=EmptyAPIClient(),
+        ):
+            op = ImageTaggingVLMMapper(
+                api_or_hf_model="qwen3.7-plus",
+                is_api_model=True,
+                try_num=2,
+            )
+            sample = {"images": [self.img2_path], Fields.meta: {}}
+
+            with self.assertRaisesRegex(RuntimeError, "empty response"):
+                op.process_single(sample)
 
     def test_specify_tag_field(self):
         tag_field_name = 'my_tags'

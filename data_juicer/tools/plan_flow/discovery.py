@@ -171,6 +171,10 @@ def operator_detail(name: str) -> dict[str, Any]:
 def _search_tags(modality: str | None) -> list[str] | None:
     if modality not in _SEARCH_MODALITIES:
         return None
+    if modality == 'multimodal':
+        # A pipeline over a multimodal record can use single-modality operators.
+        # Restricting to the multimodal tag hid all ordinary image scorers.
+        return sorted(_SEARCH_MODALITIES)
     if modality in _MEDIA_MODALITIES:
         return [modality, "multimodal"]
     return [modality]
@@ -204,10 +208,12 @@ def search_capabilities(
         if not query:
             continue
         candidate_names = []
+        retrieval = []
         seen = set()
         exact_record = operator_record(query)
         if exact_record is not None:
             candidate_names.append(query)
+            retrieval.append({"name": query, "method": "exact_name", "raw_score": None, "rank": 1, "exact": True})
             seen.add(query)
             if query in unique_operators:
                 unique_operators[query]["matched_requirements"].append(query)
@@ -216,6 +222,22 @@ def search_capabilities(
                 compact = _compact_candidate(exact_record, 1.0)
                 compact["matched_requirements"] = [query]
                 unique_operators[query] = compact
+        from .score_contracts import search_behaviors
+        for name in search_behaviors(query):
+            record = operator_record(name)
+            if record is None or name in seen or len(candidate_names) >= limit:
+                continue
+            if tags and not set(record.tags).intersection(tags):
+                continue
+            candidate_names.append(name)
+            seen.add(name)
+            retrieval.append({'name':name,'method':'measured_behavior_contract','raw_score':None,'rank':len(candidate_names),'exact':False})
+            if name not in unique_operators:
+                compact=_compact_candidate(record,1.0)
+                compact['matched_requirements']=[query]
+                unique_operators[name]=compact
+            else:
+                unique_operators[name]['matched_requirements'].append(query)
         matches = searcher.search_by_bm25(
             query=query,
             fields=["name", "desc", "param_desc", "sig"],
@@ -225,11 +247,14 @@ def search_capabilities(
         )
         highest_score = max((float(match.get("score", 0.0)) for match in matches), default=0.0)
         for match in matches:
+            if len(candidate_names) >= limit:
+                break
             if match["name"] in seen:
                 continue
             record = operator_record(match["name"])
             if record is not None:
                 candidate_names.append(record.name)
+                retrieval.append({"name": record.name, "method": "bm25", "raw_score": float(match.get("score", 0)), "rank": len(candidate_names), "exact": False})
                 seen.add(record.name)
                 if record.name in unique_operators:
                     unique_operators[record.name]["matched_requirements"].append(query)
@@ -249,6 +274,7 @@ def search_capabilities(
                 "requirement": query,
                 "coverage": "candidates" if candidate_names else "gap",
                 "operator_names": candidate_names,
+                "retrieval": retrieval,
                 "fallbacks": [] if candidate_names else ["postprocess_script", "custom_operator"],
             }
         )
@@ -262,97 +288,5 @@ def search_capabilities(
 
 
 def inspect_input(workspace_root: str, input: dict[str, Any], sample_size: int = 20) -> dict[str, Any]:
-    """Inspect a local dataset or turn a raw media directory into a DJ JSONL manifest."""
-    workspace = require_workspace(workspace_root)
-    if not isinstance(input, dict) or not input.get("path"):
-        raise PlanFlowError("INPUT_REQUIRED", "input.path is required")
-    path = resolve_workspace_path(input["path"], workspace)
-    if not is_within(path, workspace):
-        raise PlanFlowError("PATH_NOT_ALLOWED", f"Input must be inside workspace: {path}")
-    if not path.exists():
-        raise PlanFlowError("INPUT_NOT_FOUND", f"Input does not exist: {path}")
-    limit = max(1, min(int(sample_size), 100))
-    if path.is_dir():
-        media_files = sorted(
-            p for p in path.rglob("*") if p.is_file() and p.suffix.lower() in _IMAGE_SUFFIXES | _VIDEO_SUFFIXES
-        )
-        if media_files:
-            input_id = f"input_{uuid.uuid4().hex[:12]}"
-            input_dir = workspace / ".dj" / "inputs" / input_id
-            input_dir.mkdir(parents=True, exist_ok=False)
-            manifest = input_dir / "manifest.jsonl"
-            records = []
-            with manifest.open("w", encoding="utf-8") as handle:
-                for media in media_files:
-                    if media.suffix.lower() in _IMAGE_SUFFIXES:
-                        record = {"text": "<__dj__image>", "images": [str(media)]}
-                    else:
-                        record = {"text": "<__dj__video>", "videos": [str(media)]}
-                    handle.write(json.dumps(record, ensure_ascii=False) + "\n")
-                    if len(records) < limit:
-                        records.append(record)
-            descriptor = {
-                "input_id": input_id,
-                "source_path": str(path),
-                "dataset_path": str(manifest),
-                "record_count": len(media_files),
-                "modality": (
-                    "multimodal"
-                    if any("images" in r for r in records) and any("videos" in r for r in records)
-                    else ("image" if any("images" in r for r in records) else "video")
-                ),
-                "bindings": {"text_keys": ["text"], "image_key": "images", "video_key": "videos"},
-                "manifest_sha256": sha256_file(manifest),
-            }
-            write_json_atomic(input_dir / "input.json", descriptor)
-            return {"ok": True, "workspace_root": str(workspace), **descriptor, "samples": records}
-        return {
-            "ok": True,
-            "workspace_root": str(workspace),
-            "dataset_path": str(path),
-            "kind": "directory",
-            "modality": "unknown",
-            "samples": [],
-        }
-
-    suffix = path.suffix.lower()
-    samples: list[Any] = []
-    if suffix in {".jsonl", ".json"}:
-        text = path.read_text(encoding="utf-8")
-        if suffix == ".jsonl":
-            for line in text.splitlines():
-                if line.strip():
-                    samples.append(json.loads(line))
-                    if len(samples) >= limit:
-                        break
-        else:
-            value = json.loads(text)
-            samples = (value if isinstance(value, list) else [value])[:limit]
-    elif suffix in {".csv", ".tsv"}:
-        with path.open("r", encoding="utf-8-sig", newline="") as handle:
-            reader = csv.DictReader(handle, delimiter="\t" if suffix == ".tsv" else ",")
-            samples = [row for _, row in zip(range(limit), reader)]
-    elif suffix == ".parquet":
-        import pandas as pd
-
-        samples = pd.read_parquet(path).head(limit).to_dict(orient="records")
-    keys = sorted({key for sample in samples if isinstance(sample, dict) for key in sample})
-    modality = (
-        "multimodal"
-        if sum(bool(set(keys) & group) for group in ({"text"}, {"images", "image"}, {"audios"}, {"videos"})) > 1
-        else (
-            "image"
-            if set(keys) & {"images", "image", "image_bytes"}
-            else "audio" if "audios" in keys else "video" if "videos" in keys else "text"
-        )
-    )
-    return {
-        "ok": True,
-        "workspace_root": str(workspace),
-        "dataset_path": str(path),
-        "kind": "file",
-        "modality": modality,
-        "fields": keys,
-        "samples": samples,
-        "sha256": sha256_file(path),
-    }
+    from .input_profile import inspect_input as profile_input
+    return profile_input(workspace_root, input, sample_size)

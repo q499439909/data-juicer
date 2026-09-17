@@ -317,21 +317,31 @@
           "path": "pytorch_model.bin",
           "sha256": "5e2a8ede3b9568b104dbd4341d0955447fb1260edd8ef18fa1ccc5637db54532",
           "size": 343268717
-        },
-        {
-          "path": "training_args.bin",
-          "sha256": "30f7025f518401e6bd8db99340b0d7f495ec7ba9e26347b904f44fd2aea494e3",
-          "size": 4027
         }
       ],
-      "lock_id": "hf-amrul-hzz-watermark-detector-6d5ae470f2df",
+      "lock_id": "hf-amrul-hzz-watermark-detector-6d5ae470f2df-inference-v2",
       "model_id": "amrul-hzz/watermark_detector",
       "revision": "6d5ae470f2df770cd0ba15a9a0ae82d34e6fe1d8",
       "runtime_packages": [
         "huggingface-hub",
         "torch",
         "transformers"
-      ]
+      ],
+      "auxiliary_files": [
+        {
+          "path": "training_args.bin",
+          "sha256": "30f7025f518401e6bd8db99340b0d7f495ec7ba9e26347b904f44fd2aea494e3",
+          "size": 4027,
+          "role": "auxiliary/provenance"
+        }
+      ],
+      "loader_contract": {
+        "loader": "transformers.AutoModelForImageClassification",
+        "file_role": "required_for_inference",
+        "remote_code_files": [],
+        "verified_offline_load": "2026-09-11",
+        "note": "Auxiliary repository files are not required by this installed loader. Previous frozen bindings retain their original files."
+      }
     },
     {
       "backend": "huggingface",
@@ -901,11 +911,6 @@
           "size": 724
         },
         {
-          "path": "labels.json",
-          "sha256": "e5bd2d7de311ff9c564b075f52cf7c15c5d21068b0e9e74dd8c1bee5b77a034f",
-          "size": 38
-        },
-        {
           "path": "model.safetensors",
           "sha256": "97b2ce64ec146884b37f98ee7944ca4891aa72f6827dc0cb10684a1cbecd5830",
           "size": 343223968
@@ -916,14 +921,29 @@
           "size": 325
         }
       ],
-      "lock_id": "hf-falconsai-nsfw-image-detection-96cb0d0342c7",
+      "lock_id": "hf-falconsai-nsfw-image-detection-96cb0d0342c7-inference-v2",
       "model_id": "Falconsai/nsfw_image_detection",
       "revision": "96cb0d0342c7afb80cab76ecc58b265fa44da256",
       "runtime_packages": [
         "huggingface-hub",
         "torch",
         "transformers"
-      ]
+      ],
+      "auxiliary_files": [
+        {
+          "path": "labels.json",
+          "sha256": "e5bd2d7de311ff9c564b075f52cf7c15c5d21068b0e9e74dd8c1bee5b77a034f",
+          "size": 38,
+          "role": "auxiliary/provenance"
+        }
+      ],
+      "loader_contract": {
+        "loader": "transformers.AutoModelForImageClassification",
+        "file_role": "required_for_inference",
+        "remote_code_files": [],
+        "verified_offline_load": "2026-09-11",
+        "note": "Auxiliary repository files are not required by this installed loader. Previous frozen bindings retain their original files."
+      }
     },
     {
       "backend": "huggingface",
@@ -2332,11 +2352,6 @@
           "size": 674
         },
         {
-          "path": "configuration_predictor.py",
-          "sha256": "a3b040c1fadd108a317e066bc6626895013805d43f5714f99e1e29c693f92a3e",
-          "size": 1123
-        },
-        {
           "path": "merges.txt",
           "sha256": "9fd691f7c8039210e0fced15865466c65820d09b63988b0174bfe25de299051a",
           "size": 524619
@@ -2345,11 +2360,6 @@
           "path": "model.safetensors",
           "sha256": "47aacc7c4f3324c9189d9a3602befd50718c9ff2fb9816f0698ddfe1d6f1045a",
           "size": 1219627572
-        },
-        {
-          "path": "modeling_v2.py",
-          "sha256": "881440f9dcf705983e976687b7c5b1a2bd58c2b1c994ce4e659ee993b9254814",
-          "size": 5006
         },
         {
           "path": "preprocessor_config.json",
@@ -2377,14 +2387,36 @@
           "size": 862328
         }
       ],
-      "lock_id": "hf-shunk031-aesthetics-predictor-v2-sac-logos-ava1-l14-linearmse-684098de3856",
+      "lock_id": "hf-shunk031-aesthetics-predictor-v2-sac-logos-ava1-l14-linearmse-684098de3856-inference-v2",
       "model_id": "shunk031/aesthetics-predictor-v2-sac-logos-ava1-l14-linearMSE",
       "revision": "684098de3856fa4678bf800efc05635de5b6cde5",
       "runtime_packages": [
         "huggingface-hub",
         "torch",
-        "transformers"
-      ]
+        "transformers",
+        "simple-aesthetics-predictor"
+      ],
+      "auxiliary_files": [
+        {
+          "path": "configuration_predictor.py",
+          "sha256": "a3b040c1fadd108a317e066bc6626895013805d43f5714f99e1e29c693f92a3e",
+          "size": 1123,
+          "role": "auxiliary/provenance"
+        },
+        {
+          "path": "modeling_v2.py",
+          "sha256": "881440f9dcf705983e976687b7c5b1a2bd58c2b1c994ce4e659ee993b9254814",
+          "size": 5006,
+          "role": "auxiliary/provenance"
+        }
+      ],
+      "loader_contract": {
+        "loader": "aesthetics_predictor.AestheticsPredictorV2Linear",
+        "file_role": "required_for_inference",
+        "remote_code_files": [],
+        "verified_offline_load": "2026-09-11",
+        "note": "Auxiliary repository files are not required by this installed loader. Previous frozen bindings retain their original files."
+      }
     },
     {
       "backend": "huggingface",

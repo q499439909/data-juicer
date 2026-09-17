@@ -17,6 +17,7 @@ from .runtime_preflight import RuntimePreflight
 from .store import PlanStore
 from .validation import normalize_and_validate
 from .common import PlanFlowError
+from .task_control import authorize_workspace, authorize_task, controlled
 from . import operator_catalog_service as unified_catalog
 from .user_operator_store import UserOperatorStore, current_user, resolve_bindings
 from .capability_schema import CapabilityCatalog, CapabilityDescriptor, OperatorArtifact
@@ -90,6 +91,7 @@ class PlanFlowService:
         return cls.native()
 
     def inspect_input(self, workspace_root: str, input: dict[str, Any], sample_size: int = 20) -> dict[str, Any]:
+        authorize_workspace(workspace_root)
         return inspect_local_input(workspace_root, input, sample_size)
 
     def operator_catalog(self) -> dict[str, Any]:
@@ -155,6 +157,47 @@ class PlanFlowService:
         }
 
     def prepare_plan(
+        self, workspace_root: str, plan: dict[str, Any], task_id: str | None = None,
+        base_plan_version: str | None = None, view_spec: dict[str, Any] | None = None,
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        if not request_id:
+            return self._prepare_plan(workspace_root,plan,task_id,base_plan_version,view_spec)
+        from filelock import FileLock
+        from .common import canonical_json, sha256_bytes, read_json, write_json_atomic
+        from .user_operator_store import current_user
+        authorize_workspace(workspace_root)
+        store=PlanStore(workspace_root)
+        key=sha256_bytes(canonical_json([current_user.get(),request_id])).removeprefix('sha256:')
+        root=store.workspace/'.dsh'/'plan-requests';root.mkdir(parents=True,exist_ok=True)
+        path=root/(key+'.json')
+        fingerprint=sha256_bytes(canonical_json([plan,task_id,base_plan_version,view_spec]))
+        with FileLock(root/(key+'.lock')):
+            saved=read_json(path) if path.exists() else None
+            if saved and saved['fingerprint']!=fingerprint:
+                raise PlanFlowError('REQUEST_CONFLICT','The same submission ID cannot change Plan content')
+            if not saved:
+                if task_id: authorize_task(store,task_id)
+                else: task_id,_=store.create_task(str(plan.get('user_intent','Data processing task')))
+                saved={'fingerprint':fingerprint,'task_id':task_id}
+                write_json_atomic(path,saved)
+            task_id=saved['task_id'];authorize_task(store,task_id)
+            if saved.get('plan_version'):
+                result=self.get_plan(workspace_root,task_id,saved['plan_version']);result['replayed']=True
+                return result
+            # Recover a committed Plan when the acknowledgement/index write was lost.
+            for item in store.list_plans(task_id):
+                version=item['plan_version']
+                info=store.get_plan(task_id,version)
+                if info['plan'].get('submission_ref')==key:
+                    saved['plan_version']=version;write_json_atomic(path,saved)
+                    result=self.get_plan(workspace_root,task_id,version);result['replayed']=True
+                    return result
+            result=self._prepare_plan(workspace_root,{**plan,'submission_ref':key},task_id,base_plan_version,view_spec)
+            saved['plan_version']=result['plan_version'];write_json_atomic(path,saved)
+            return result
+
+    def _prepare_plan(
         self,
         workspace_root: str,
         plan: dict[str, Any],
@@ -162,10 +205,12 @@ class PlanFlowService:
         base_plan_version: str | None = None,
         view_spec: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
+        authorize_workspace(workspace_root)
         store = PlanStore(workspace_root)
         if task_id is None:
             task_id, _ = store.create_task(str(plan.get("user_intent", "Data processing task")))
         else:
+            authorize_task(store, task_id)
             store.task_path(task_id)
             if store.list_plans(task_id):
                 self._authorize_personal_plan(store.get_plan(task_id)["plan"])
@@ -219,6 +264,7 @@ class PlanFlowService:
             view_spec=view_spec,
         )
         stored = store.get_plan(task_id, saved["plan_version"])
+        validation = stored['validation']
         runtime_assessment = self._runtime_assessment(stored["plan"])
         return {
             "ok": True,
@@ -234,7 +280,9 @@ class PlanFlowService:
     def get_plan(
         self, workspace_root: str, task_id: str, plan_version: str | None = None, include_versions: bool = False
     ) -> dict[str, Any]:
+        authorize_workspace(workspace_root)
         store = PlanStore(workspace_root)
+        authorize_task(store, task_id)
         result = {
             "ok": True,
             "workspace_root": str(store.workspace),
@@ -243,24 +291,52 @@ class PlanFlowService:
         }
         if include_versions:
             result["versions"] = store.list_plans(task_id)
+        result['plan_version']=result['plan']['plan_version']
+        result['valid']=result['validation'].get('ok',False)
         self._authorize_personal_plan(result["plan"])
         result["execution_preview"] = self._execution_preview(result["plan"])
         result["runtime_assessment"] = self._runtime_assessment(result["plan"])
         return result
 
     def approve_plan(
-        self, workspace_root: str, task_id: str, plan_version: str, content_hash: str, note: str = ""
+        self, workspace_root: str, task_id: str, plan_version: str, content_hash: str, note: str = "", accepted_gaps: list[str] | None = None
     ) -> dict[str, Any]:
+        authorize_workspace(workspace_root)
         store = PlanStore(workspace_root)
-        self._authorize_personal_plan(store.get_plan(task_id, plan_version)["plan"])
+        authorize_task(store, task_id)
+        store.verify_bundle(task_id, plan_version)
+        info = store.get_plan(task_id, plan_version)
+        if not info['validation'].get('ok'):
+            raise PlanFlowError('PLAN_INVALID', 'Only a valid plan can be approved', details=info['validation'].get('errors'))
+        if info['content_hash'] != content_hash:
+            raise PlanFlowError('CONTENT_CHANGED', 'The plan content does not match the version shown to the user')
+        self._authorize_personal_plan(info['plan'])
+        coverage=info['plan'].get('coverage',[])
+        if any(c.get('status')=='needs_user_input' for c in coverage):
+            raise PlanFlowError('REQUIREMENT_INPUT_REQUIRED','Clarify unresolved requirements before approval')
+        gaps=[c.get('id') or c.get('requirement') for c in coverage if c.get('status')=='gap']
+        if not isinstance(accepted_gaps,(list,type(None))) or any(not isinstance(g,str) for g in (accepted_gaps or [])):
+            raise PlanFlowError('GAP_ACCEPTANCE_REQUIRED','Invalid requirement gap acceptance')
+        if set(gaps)-set(accepted_gaps or []):
+            raise PlanFlowError('GAP_ACCEPTANCE_REQUIRED','Explicitly accept or resolve the listed requirement gaps',details=gaps)
+        if gaps:
+            import json
+            note=json.dumps({'note':note,'accepted_gaps':gaps},ensure_ascii=False)
+        blockers = self._runtime_assessment(info['plan']).get('blocking_issues', [])
+        if blockers:
+            raise PlanFlowError('RUNTIME_PREFLIGHT_FAILED', 'Resolve runtime blockers before approval', details=blockers)
         return {
             "ok": True,
             "workspace_root": str(store.workspace),
             "approval": store.approve(task_id, plan_version, content_hash, note),
         }
 
-    def run_plan(self, workspace_root: str, task_id: str, plan_version: str) -> dict[str, Any]:
+    def run_plan(self, workspace_root: str, task_id: str, plan_version: str, request_id: str | None = None, timeout_seconds: int = 3600) -> dict[str, Any]:
+        authorize_workspace(workspace_root)
         store = PlanStore(workspace_root)
+        if controlled() and not request_id:
+            raise PlanFlowError("REQUEST_ID_REQUIRED", "A stable host request_id is required")
+        authorize_task(store, task_id)
         content_hash = store.verify_bundle(task_id, plan_version)
         info = store.get_plan(task_id, plan_version)
         self._authorize_personal_plan(info["plan"])
@@ -297,8 +373,15 @@ class PlanFlowService:
             )
         if self.execution_mode == "native":
             runner = PlanRunner(workspace_root)
-            run = runner.start(task_id, plan_version)
+            if not info["plan"].get("input_snapshot"):
+                raise PlanFlowError("INPUT_SNAPSHOT_REQUIRED", "Create a new plan with frozen input")
+            if controlled() and not info.get("approval", {}).get("decision_ref"):
+                raise PlanFlowError("USER_DECISION_REQUIRED", "Approve this version through the UI")
+            run = runner.start(task_id, plan_version, request_id=request_id, timeout_seconds=timeout_seconds)
             run["result_ref"] = run["run_id"]
+            if run.get('status')=='failed':
+                from .recovery import recovery
+                run['recovery_actions']=recovery(run.get('error_code','EXECUTION_FAILED'))[1]
             return {"ok": True, "workspace_root": str(runner.store.workspace), "run": run}
         if self.runtime_resolver is None or self.broker_client is None:
             raise PlanFlowError("BROKER_REQUIRED", "Production run_plan requires Runtime Resolver and loopback Broker")
@@ -322,14 +405,19 @@ class PlanFlowService:
         return {"ok": True, "workspace_root": str(store.workspace), "run": run}
 
     def get_run(self, workspace_root: str, task_id: str, run_id: str | None = None) -> dict[str, Any]:
+        authorize_task(PlanStore(workspace_root), task_id)
         if self.execution_mode == "native":
             runner = PlanRunner(workspace_root)
             run = runner.get(task_id, run_id)
-            self._authorize_personal_plan(runner.store.get_plan(task_id, run["plan_version"])["plan"])
+            self._authorize_personal_plan(runner.store.get_plan(task_id, run["plan_version"])["plan"], execution=False)
             run["result_ref"] = run["run_id"]
+            if run.get('status') == 'failed':
+                from .recovery import recovery
+                run['recovery_actions'] = recovery(run.get('error_code', 'EXECUTION_FAILED'))[1]
             return {"ok": True, "workspace_root": str(runner.store.workspace), "run": run}
         if self.broker_client is None or run_id is None:
             raise PlanFlowError("BROKER_REQUIRED", "A broker and public run_id are required")
+        authorize_workspace(workspace_root)
         store = PlanStore(workspace_root)
         run = self.broker_client.get(run_id)
         if run.get("task_id") != task_id:
@@ -337,13 +425,15 @@ class PlanFlowService:
         return {"ok": True, "workspace_root": str(store.workspace), "run": run}
 
     def cancel_run(self, workspace_root: str, task_id: str, run_id: str) -> dict[str, Any]:
+        authorize_task(PlanStore(workspace_root), task_id)
         if self.execution_mode == "native":
             runner = PlanRunner(workspace_root)
             existing = runner.get(task_id, run_id)
-            self._authorize_personal_plan(runner.store.get_plan(task_id, existing["plan_version"])["plan"])
+            self._authorize_personal_plan(runner.store.get_plan(task_id, existing["plan_version"])["plan"], execution=False)
             return {"ok": True, "workspace_root": str(runner.store.workspace), "run": runner.cancel(task_id, run_id)}
         if self.broker_client is None:
             raise PlanFlowError("BROKER_REQUIRED", "A broker is required")
+        authorize_workspace(workspace_root)
         store = PlanStore(workspace_root)
         current = self.broker_client.get(run_id)
         if current.get("task_id") != task_id:
@@ -351,10 +441,12 @@ class PlanFlowService:
         return {"ok": True, "workspace_root": str(store.workspace), "run": self.broker_client.cancel(run_id)}
 
     @staticmethod
-    def _authorize_personal_plan(plan):
+    def _authorize_personal_plan(plan, *, execution=True):
         if plan.get("operator_bindings"):
             if not current_user.get() or plan.get("operator_owner") != current_user.get():
                 raise PlanFlowError("OPERATOR_OWNER_FORBIDDEN", "This personal-operator plan belongs to another account")
+            if not execution:
+                return
             resolved = resolve_bindings(plan)
             from .user_operator_runtime import runtime_python
             runtime_python(UserOperatorStore(), [requirement for item in resolved.values() for requirement in item["_manifest"].get("dependencies", [])])
@@ -372,9 +464,41 @@ class PlanFlowService:
         }
 
     def _runtime_assessment(self, plan: dict[str, Any]) -> dict[str, Any]:
-        return self.runtime_preflight.assess(
+        result = self.runtime_preflight.assess(
             plan,
             execution_mode=self.execution_mode,
             runtime_resolver_configured=self.runtime_resolver is not None,
             broker_configured=self.broker_client is not None,
         )
+        if self.execution_mode=='native' and plan.get('runtime_lock'):
+            from .runtime_environment_lock import inspect_plan_runtime, verify_runtime_lock
+            runtime=inspect_plan_runtime(plan)
+            try: verify_runtime_lock(plan['runtime_lock'])
+            except PlanFlowError as exc: runtime['blocking_issues'].append({'code':exc.code,'message':exc.message})
+            result['environment']=runtime
+            result['blocking_issues'].extend(runtime['blocking_issues'])
+            result['ok']=not result['blocking_issues']
+        if self.execution_mode!='native' and any(s.get('kind')=='image_audit' for s in plan.get('postprocess',[])):
+            result['blocking_issues'].append({'code':'AUDIT_RUNTIME_UNAVAILABLE','message':'image_audit currently requires native execution'})
+            result['ok']=False
+        if self.execution_mode == 'native':
+            from .model_backends.huggingface import HuggingFaceModelBackend
+            backend=HuggingFaceModelBackend()
+            models=[]
+            for binding in plan.get('model_bindings',[]):
+                if binding.get('backend')!='huggingface':continue
+                try:item=backend.inspect(binding)
+                except (PlanFlowError,OSError) as exc:
+                    item={'model_id':binding.get('model_id'),'verified':False,'can_prepare':False,
+                          'code':getattr(exc,'code','MODEL_CACHE_UNREADABLE'),'message':str(exc)}
+                models.append(item)
+                if not item['verified'] and not item['can_prepare']:
+                    result['blocking_issues'].append({'code':'MODEL_PREPARATION_BLOCKED','message':'Model files are not ready and cannot be prepared automatically','details':item})
+            result['model_readiness']={'ready':all(m['verified'] for m in models),'models':models,
+                                       'download_bytes':sum(m.get('download_bytes',0) for m in models)}
+            result['warnings']=[w for w in result.get('warnings',[]) if w.get('code')!='MODEL_DOWNLOAD_MAY_BE_REQUIRED']
+            if any(not m['verified'] and m['can_prepare'] for m in models):
+                result['warnings'].append({'code':'MODEL_PREPARATION_REQUIRED','message':'The approved Run will prepare only the missing or damaged locked files.',
+                                          'download_bytes':result['model_readiness']['download_bytes']})
+            result['ok']=not result['blocking_issues']
+        return result
