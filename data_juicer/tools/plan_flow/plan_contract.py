@@ -40,6 +40,22 @@ class PythonStep(BaseModel):
     )
 
 
+class PackageManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    path: str = Field(min_length=1, description="Existing JSONL result manifest inside RUN_OUTPUT.")
+    media_dir: str = Field(min_length=1, description="New or empty media directory inside RUN_OUTPUT.")
+    media_keys: list[str] = Field(default_factory=list)
+
+
+class DatasetPackage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    kind: Literal["dataset_package"]
+    manifests: list[PackageManifest] = Field(
+        min_length=1,
+        description="Copy referenced local media into each output package and rewrite JSONL media paths as relative paths.",
+    )
+
+
 class Recipe(BaseModel):
     model_config = ConfigDict(extra="allow")
     dataset_path: str | None = Field(
@@ -160,7 +176,7 @@ class PlanDraft(BaseModel):
     user_intent: str = Field(min_length=1)
     modality: str = "unknown"
     recipe: Recipe
-    postprocess: list[ImageAudit | PythonStep] = Field(default_factory=list)
+    postprocess: list[ImageAudit | PythonStep | DatasetPackage] = Field(default_factory=list)
     expected_outputs: list[Output] = Field(default_factory=list)
     acceptance_checks: list[AcceptanceCheck] = Field(
         default_factory=list,
@@ -177,7 +193,7 @@ class PlanDraft(BaseModel):
 def contract():
     return {
         "ok": True,
-        "contract_version": "plan-v1.2",
+        "contract_version": "plan-v1.3",
         "schema": PlanDraft.model_json_schema(),
         "image_audit": {
             "input": "Recipe JSONL with every original image and __dj__stats__ arrays in image order. Native image_audit uses Filter.run(reduce=False) and keeps all scores. No earlier dropping or expansion is allowed.",
@@ -195,7 +211,7 @@ def contract():
             },
             "example_decision": {
                 "image_id": "content-identity",
-                "source": "frozen/input/image.jpg",
+                "source": "D:/workspace/data/image.jpg",
                 "image_index": 0,
                 "scores": {"image_watermark_prob": 0.8},
                 "checks": {"watermark": "failed"},
@@ -221,6 +237,16 @@ def contract():
                 "Does not infer clarity from face detection.",
                 "Cascade currently saves decision evaluation, not inference cost: DJ scores the full input. Native execution only.",
             ],
+        },
+        "dataset_package": {
+            "semantics": "Task-specific processing writes result JSONL that references read-only source media. A later generic dataset_package step copies only those selected media into RUN_OUTPUT and rewrites media fields to paths relative to each JSONL manifest.",
+            "example": {
+                "kind": "dataset_package",
+                "manifests": [
+                    {"path": "cats.jsonl", "media_dir": "cats"},
+                    {"path": "dogs.jsonl", "media_dir": "dogs"},
+                ],
+            },
         },
         "approval": {
             "tool": "mcp__dj__confirm_plan",

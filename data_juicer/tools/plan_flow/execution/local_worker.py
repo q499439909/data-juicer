@@ -168,6 +168,15 @@ def execute_worker(workspace: str, task_id: str, plan_version: str, run_id: str)
             state["active_postprocess_index"] = index
             state["postprocess_results"] = post_results
             _write_worker_state(run_path / "run.json", state)
+            if step.get("kind") == "dataset_package":
+                from ..output_packaging import package_datasets
+
+                package_spec = _replace(step.get("manifests", []), variables)
+                result = package_datasets(state["output_dir"], workspace, package_spec)
+                post_results.append({"step": index + 1, "kind": "dataset_package", **result})
+                state["postprocess_results"] = post_results
+                _write_worker_state(run_path / "run.json", state)
+                continue
             if step.get("kind") == "image_audit":
                 from ..image_audit import run_image_audit
 

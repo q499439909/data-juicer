@@ -37,13 +37,16 @@ def plan_fixture(root):
 
 def test_native_input_is_frozen_and_tamper_detected(tmp_path):
     store, task, saved = plan_fixture(tmp_path)
-    (tmp_path / 'a.jpg').write_bytes(b'changed')
     (tmp_path / 'input.jsonl').write_text('{}\n')
     assert store.verify_bundle(task, saved['plan_version']) == saved['content_hash']
     plan = store.get_plan(task, saved['plan_version'])['plan']
     frozen = Path(plan['recipe']['dataset_path'])
     row = json.loads(frozen.read_text())
     assert Path(row['images'][0]).read_bytes() == b'original media'
+    (tmp_path / 'a.jpg').write_bytes(b'changed')
+    with pytest.raises(PlanFlowError, match='Referenced input changed'):
+        store.verify_bundle(task, saved['plan_version'])
+    (tmp_path / 'a.jpg').write_bytes(b'original media')
     frozen.write_text('{}\n')
     with pytest.raises(PlanFlowError, match='Frozen input'):
         store.verify_bundle(task, saved['plan_version'])
@@ -61,6 +64,19 @@ def test_workspace_grant_is_exclusive(tmp_path, monkeypatch):
             register_workspace(tmp_path, 'bob')
     finally:
         current_user.reset(token)
+
+
+def test_single_user_mode_disables_account_control_and_pins_workspace(tmp_path, monkeypatch):
+    from data_juicer.tools.plan_flow import server
+    from data_juicer.tools.plan_flow.task_control import controlled
+
+    monkeypatch.setenv('DSH_DJ_INTERNAL_TOKEN', 'still-used-by-private-ui-routes')
+    monkeypatch.setenv('DJ_PLAN_FLOW_SINGLE_USER', 'local')
+    monkeypatch.setenv('DJ_PLAN_FLOW_WORKSPACE_ROOT', str(tmp_path))
+
+    assert controlled() is False
+    assert server._workspace_root(r'D:\untrusted\model\path') == str(tmp_path.resolve())
+    assert server._call(lambda: {'ok': True}) == {'ok': True}
 
 
 def test_owner_cannot_self_approve_without_user_event(tmp_path, monkeypatch):

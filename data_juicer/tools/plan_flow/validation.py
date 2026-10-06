@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 import copy
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from data_juicer.config.config import build_base_parser
@@ -43,6 +43,16 @@ _COMMON_OPERATOR_PARAMS = {
     "max_closed_interval",
     "reversed_range",
 }
+
+
+def _safe_output_relative(value: str) -> PurePosixPath:
+    normalized = str(value or "").replace("\\", "/")
+    path = PurePosixPath(normalized)
+    if not normalized or path.is_absolute() or ".." in path.parts or "." in path.parts or path.parts[0].endswith(":"):
+        raise ValueError("dataset_package paths must be safe paths relative to RUN_OUTPUT")
+    return path
+
+
 _SECRET_MARKERS = ("api_key", "apikey", "password", "secret", "credential", "access_token")
 _MODEL_ARTIFACT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _MODEL_URI = re.compile(r"model-store://([A-Za-z0-9][A-Za-z0-9._-]{0,127})(?:/(.+))?\Z")
@@ -472,6 +482,25 @@ def normalize_and_validate(
             artifact_paths.append(str(raw))
     for index, step in enumerate(plan.get("postprocess", []) or []):
         location = f"postprocess[{index}]"
+        if isinstance(step, dict) and step.get("kind") == "dataset_package":
+            from .plan_contract import DatasetPackage
+
+            try:
+                package = DatasetPackage.model_validate(step)
+                paths = set()
+                media_dirs = set()
+                for item in package.manifests:
+                    manifest_path = _safe_output_relative(item.path)
+                    media_dir = _safe_output_relative(item.media_dir)
+                    if manifest_path.suffix.casefold() != ".jsonl":
+                        raise ValueError("dataset_package manifests must be JSONL files")
+                    if manifest_path in paths or media_dir in media_dirs:
+                        raise ValueError("dataset_package paths and media directories must be unique")
+                    paths.add(manifest_path)
+                    media_dirs.add(media_dir)
+            except (ValueError, TypeError) as exc:
+                errors.append({"code": "INVALID_DATASET_PACKAGE", "path": location, "message": str(exc)})
+            continue
         if isinstance(step, dict) and step.get("kind") == "image_audit":
             from .plan_contract import ImageAudit
 
@@ -513,7 +542,7 @@ def normalize_and_validate(
                 {
                     "code": "INVALID_POSTPROCESS",
                     "path": location,
-                    "message": "Only kind=python postprocess steps are supported",
+                    "message": "Only kind=python, kind=image_audit and kind=dataset_package postprocess steps are supported",
                 }
             )
             continue

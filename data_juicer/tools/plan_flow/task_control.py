@@ -14,6 +14,8 @@ trusted_decision: ContextVar[str | None] = ContextVar("trusted_decision", defaul
 
 
 def controlled():
+    if os.environ.get("DJ_PLAN_FLOW_SINGLE_USER"):
+        return False
     return bool(os.environ.get("DSH_DJ_INTERNAL_TOKEN") or current_user.get())
 
 

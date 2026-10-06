@@ -330,7 +330,7 @@ class PlanStore:
         if plan.get("input_snapshot"):
             from .native_inputs import verify_inputs
 
-            verify_inputs(plan, path)
+            verify_inputs(plan, path, self.workspace)
         artifacts = plan.get("artifacts", []) or []
         for artifact in artifacts:
             artifact_path = path / str(artifact.get("path", ""))

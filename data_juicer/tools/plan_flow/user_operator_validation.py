@@ -27,6 +27,22 @@ from .common import (
 from .user_operator_store import UserOperatorStore, digest, public_candidate, safe_id
 
 
+_MISSING = object()
+
+
+def _field_value(row, field):
+    if not isinstance(row, dict):
+        return _MISSING
+    if field in row:
+        return row[field]
+    value = row
+    for key in field.split("."):
+        if not isinstance(value, dict) or key not in value:
+            return _MISSING
+        value = value[key]
+    return value
+
+
 def stop_process(process):
     import psutil
 
@@ -508,7 +524,7 @@ class UserOperatorValidation:
             if "row_count" in contract and len(rows) != contract["row_count"]:
                 raise AssertionError("Output row_count did not meet the frozen contract")
             for assertion in contract.get("equals", []):
-                if rows[assertion["row"]].get(assertion["field"]) != assertion["value"]:
+                if _field_value(rows[assertion["row"]], assertion["field"]) != assertion["value"]:
                     raise AssertionError(f"Output assertion failed: row {assertion['row']}, field {assertion['field']}")
             accepted = bool(contract.get("purpose") and contract.get("equals"))
             report = {

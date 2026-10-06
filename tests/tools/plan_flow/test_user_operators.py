@@ -41,6 +41,30 @@ class FaceClarityFilter(BaseFilter):
 """
 
 
+STATS_FILTER_SOURCE = '''from data_juicer.ops.base_op import OPERATORS, Filter
+from data_juicer.utils.constant import Fields
+
+OP_NAME = "personal_text_length_filter"
+
+
+@OPERATORS.register_module(OP_NAME)
+class PersonalTextLengthFilter(Filter):
+    """Keep text samples at or above a configured length."""
+
+    def __init__(self, min_length: int = 1, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.min_length = min_length
+        self._init_parameters = self.remove_extra_parameters(locals())
+
+    def compute_stats_single(self, sample, context=False):
+        sample.setdefault(Fields.stats, {})["personal_text_length"] = len(sample[self.text_key])
+        return sample
+
+    def process_single(self, sample):
+        return sample[Fields.stats]["personal_text_length"] >= self.min_length
+'''
+
+
 @pytest.fixture
 def account(tmp_path, monkeypatch):
     # Dataset backends generate deep cache paths; use a short Windows test root.
@@ -457,3 +481,68 @@ def test_http_gateway_injects_account_outside_tool_arguments(account, monkeypatc
             assert all(item["provider"] == "dj" for item in public["operators"])
     finally:
         current_user.reset(token)
+
+
+def test_standard_mcp_tools_use_stable_single_user_identity(tmp_path, monkeypatch):
+    from data_juicer.tools.plan_flow import server
+
+    monkeypatch.setenv("DJ_PLAN_FLOW_SINGLE_USER", "local")
+    monkeypatch.setenv("DSH_USER_DATA_ROOT", str(tmp_path / "users"))
+    monkeypatch.setattr(
+        server.validation_jobs,
+        "develop",
+        lambda *args, **kwargs: {"ok": True, "user_id": UserOperatorStore().user_id},
+    )
+    token = current_user.set(None)
+    try:
+        result = server.develop_custom_operator({}, [{}])
+        assert result == {"ok": True, "user_id": "local"}
+        assert current_user.get() is None
+    finally:
+        current_user.reset(token)
+
+
+def test_validate_custom_operator_resolves_under_single_user_identity(tmp_path, monkeypatch):
+    from data_juicer.tools.plan_flow import server
+
+    monkeypatch.setenv("DJ_PLAN_FLOW_SINGLE_USER", "local")
+    monkeypatch.setenv("DSH_USER_DATA_ROOT", str(tmp_path / "users"))
+    item = publish(UserOperatorStore(user_id="local"))
+    monkeypatch.setattr(
+        server.validation_jobs,
+        "develop",
+        lambda *args, **kwargs: {"ok": True, "user_id": UserOperatorStore().user_id},
+    )
+    token = current_user.set(None)
+    try:
+        result = server.validate_custom_operator(item["candidate_id"], [{}])
+        assert result == {"ok": True, "user_id": "local"}
+        assert current_user.get() is None
+    finally:
+        current_user.reset(token)
+
+
+@pytest.mark.integration
+def test_filter_validation_can_assert_nested_stats(account):
+    jobs = UserOperatorValidation()
+    proposal = {
+        "name": "personal_text_length_filter",
+        "category": "filter",
+        "source": STATS_FILTER_SOURCE,
+        "validation_contract": {
+            "purpose": "validate a filter's computed statistic",
+            "row_count": 1,
+            "equals": [
+                {
+                    "row": 0,
+                    "field": "__dj__stats__.personal_text_length",
+                    "value": 5,
+                }
+            ],
+        },
+    }
+
+    submitted = jobs.develop(proposal, [{"text": "hello"}], {"min_length": 3})["job"]
+    final = wait_job(jobs, submitted["job_id"])
+
+    assert final["status"] == "validated", final.get("error", final)

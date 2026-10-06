@@ -6,6 +6,7 @@ import hmac
 import inspect
 import os
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Annotated, Any
 
 from pydantic import Field
@@ -48,15 +49,44 @@ WorkspaceRoot = Annotated[
 ]
 
 
+def _single_user_mode() -> bool:
+    return bool(os.environ.get("DJ_PLAN_FLOW_SINGLE_USER"))
+
+
+def _single_user_id() -> str | None:
+    value = os.environ.get("DJ_PLAN_FLOW_SINGLE_USER")
+    return safe_id(value) if value else None
+
+
+@contextmanager
+def _tool_user():
+    if current_user.get() or not _single_user_mode():
+        yield
+        return
+    token = current_user.set(_single_user_id())
+    try:
+        yield
+    finally:
+        current_user.reset(token)
+
+
+def _workspace_root(requested: str) -> str:
+    """Pin all Plan Flow paths to the deployment workspace in local single-user mode."""
+    fixed = os.environ.get("DJ_PLAN_FLOW_WORKSPACE_ROOT") if _single_user_mode() else None
+    return str(Path(fixed).resolve()) if fixed else requested
+
+
 def _call(method, *args, **kwargs) -> dict[str, Any]:
     try:
-        if (
-            os.environ.get("DSH_DJ_INTERNAL_TOKEN")
-            and not current_user.get()
-            and method.__name__ not in {"operator_catalog", "operator_detail"}
-        ):
-            raise PlanFlowError("ACCOUNT_REQUIRED", "Use the authenticated DJ gateway")
-        return method(*args, **kwargs)
+        with _tool_user():
+            if (
+                os.environ.get("DSH_DJ_INTERNAL_TOKEN")
+                and not _single_user_mode()
+                and not current_user.get()
+                and method.__name__ not in {"operator_catalog", "operator_detail"}
+            ):
+                raise PlanFlowError("ACCOUNT_REQUIRED", "Use the authenticated DJ gateway")
+            return method(*args, **kwargs)
     except PlanFlowError as exc:
         return exc.to_dict()
 
@@ -69,7 +99,13 @@ def _internal_authorized(request: Request) -> bool:
 
 @contextmanager
 def _request_user(request):
-    user = request.headers.get("x-dsh-user-id") if _internal_authorized(request) else None
+    user = (
+        _single_user_id()
+        if _single_user_mode()
+        else request.headers.get("x-dsh-user-id")
+        if _internal_authorized(request)
+        else None
+    )
     token = current_user.set(safe_id(user) if user else None)
     try:
         yield
@@ -129,7 +165,7 @@ def validate_custom_operator(
     from .common import read_json
     from .user_operator_store import UserOperatorStore
 
-    try:
+    def validate():
         item = UserOperatorStore().resolve(candidate_id)
         path = Path(item["_path"])
         contract = read_json(path.parent / "validation-contract.json")
@@ -140,14 +176,14 @@ def validate_custom_operator(
             "validation_contract": {key: value for key, value in contract.items() if not key.startswith("_")},
             **item["_manifest"],
         }
-        return _call(validation_jobs.develop, proposal, samples, parameters, timeout_seconds, request_id, task_id)
-    except PlanFlowError as exc:
-        return exc.to_dict()
+        return validation_jobs.develop(proposal, samples, parameters, timeout_seconds, request_id, task_id)
+
+    return _call(validate)
 
 
 def _result_arguments(request: Request) -> tuple[str, str, str, str]:
     return (
-        request.query_params.get("workspace_root", ""),
+        _workspace_root(request.query_params.get("workspace_root", "")),
         request.query_params.get("task_id", ""),
         request.query_params.get("plan_version", ""),
         request.query_params.get("result_ref", ""),
@@ -156,7 +192,7 @@ def _result_arguments(request: Request) -> tuple[str, str, str, str]:
 
 def inspect_input(workspace_root: WorkspaceRoot, input: dict[str, Any], sample_size: int = 20) -> dict[str, Any]:
     """Inspect input in the DSH-selected workspace; raw media folders become reproducible DJ JSONL manifests."""
-    return _call(service.inspect_input, workspace_root, input, sample_size)
+    return _call(service.inspect_input, _workspace_root(workspace_root), input, sample_size)
 
 
 def search_capabilities(
@@ -190,7 +226,7 @@ def get_plan_contract() -> dict[str, Any]:
 
 def inspect_runtime(workspace_root: WorkspaceRoot, task_id: str, plan_version: str | None = None) -> dict[str, Any]:
     """Read the authorized Plan's platform-specific dependency closure, runtime identity and recovery actions; never install packages."""
-    result = _call(service.get_plan, workspace_root, task_id, plan_version)
+    result = _call(service.get_plan, _workspace_root(workspace_root), task_id, plan_version)
     if not result.get("ok"):
         return result
     return {
@@ -247,7 +283,7 @@ def prepare_plan(
     """Validate and save a new immutable plan_vNNN. Invalid drafts are saved for audit but cannot be approved."""
     raw = plan.model_dump(exclude_unset=True) if isinstance(plan, PlanDraft) else dict(plan)
     raw.pop("submission_ref", None)
-    return _call(service.prepare_plan, workspace_root, raw, task_id, base_plan_version, view_spec, request_id)
+    return _call(service.prepare_plan, _workspace_root(workspace_root), raw, task_id, base_plan_version, view_spec, request_id)
 
 
 def get_plan(
@@ -257,7 +293,7 @@ def get_plan(
     include_versions: bool = False,
 ) -> dict[str, Any]:
     """Read a plan, execution preview, runtime preflight, validation, diff, approval, and versions."""
-    return _call(service.get_plan, workspace_root, task_id, plan_version, include_versions)
+    return _call(service.get_plan, _workspace_root(workspace_root), task_id, plan_version, include_versions)
 
 
 def approve_plan(
@@ -269,7 +305,15 @@ def approve_plan(
     accepted_gaps: list[str] | None = None,
 ) -> dict[str, Any]:
     """Approve the exact validated plan bundle identified by its single content hash."""
-    return _call(service.approve_plan, workspace_root, task_id, plan_version, content_hash, note, accepted_gaps)
+    return _call(
+        service.approve_plan,
+        _workspace_root(workspace_root),
+        task_id,
+        plan_version,
+        content_hash,
+        note,
+        accepted_gaps,
+    )
 
 
 def run_plan(
@@ -280,17 +324,24 @@ def run_plan(
     timeout_seconds: int = 3600,
 ) -> dict[str, Any]:
     """Start an approved plan asynchronously in a fresh versioned output directory."""
-    return _call(service.run_plan, workspace_root, task_id, plan_version, request_id, timeout_seconds)
+    return _call(
+        service.run_plan,
+        _workspace_root(workspace_root),
+        task_id,
+        plan_version,
+        request_id,
+        timeout_seconds,
+    )
 
 
 def get_run(workspace_root: WorkspaceRoot, task_id: str, run_id: str | None = None) -> dict[str, Any]:
     """Get run status and paths to logs, output, and the final report."""
-    return _call(service.get_run, workspace_root, task_id, run_id)
+    return _call(service.get_run, _workspace_root(workspace_root), task_id, run_id)
 
 
 def cancel_run(workspace_root: WorkspaceRoot, task_id: str, run_id: str) -> dict[str, Any]:
     """Stop a running worker and mark the run cancelled."""
-    return _call(service.cancel_run, workspace_root, task_id, run_id)
+    return _call(service.cancel_run, _workspace_root(workspace_root), task_id, run_id)
 
 
 def create_mcp_server(port: str = "8000"):

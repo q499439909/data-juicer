@@ -66,6 +66,7 @@ def run(root):
         "np": 1,
         "dataset": {"configs": [{"type": "local", "path": str(root / "input.jsonl")}]},
         "export_path": str(root / "validation" / "output.jsonl"),
+        "keep_stats_in_res_ds": True,
         "use_cache": False,
         "custom_operator_paths": [str(root / f"{name}.py")],
         "process": [{name: test_parameters}],
